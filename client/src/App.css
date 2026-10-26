@@ -1630,3 +1630,370 @@ MENTIONED USERS
 .mention-option .mention-at {
   color: inherit;
 }
+
+
+/* =========================================
+   MOBILE RESPONSIVENESS FIXES
+   Append to the END of App.css
+========================================= */
+
+/* Prevent accidental horizontal overflow */
+html,
+body,
+#root {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+.chat-screen,
+.join-screen,
+.join-card,
+.messages-section,
+.users-sidebar {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+/* iOS Safari: prevent input focus zoom */
+.username-field input,
+.message-form input {
+  font-size: 16px !important;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Allow long usernames and messages to wrap */
+.message-bubble {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.message-content {
+  min-width: 0;
+}
+
+.conversation-header > div:nth-child(2) {
+  min-width: 0;
+}
+
+@media (max-width: 640px) {
+  /* Use a vertical layout instead of a narrow sidebar */
+  .chat-screen {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Horizontal conversation selector at the top */
+  .users-sidebar {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    width: 100%;
+    height: auto;
+    padding: 8px 10px;
+    gap: 8px;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .sidebar-heading {
+    display: none;
+  }
+
+  .sidebar-section-label {
+    display: none;
+  }
+
+  .sidebar-footer {
+    display: none;
+  }
+
+  /* Group chat button */
+  .users-sidebar > .conversation-item {
+    flex: 0 0 46px;
+    width: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    padding: 3px;
+  }
+
+  /* Online users scroll horizontally */
+  .users-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: center;
+    width: 0;
+    min-width: 0;
+    min-height: 0;
+    gap: 7px;
+    padding: 0 0 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .users-list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .users-list .conversation-item {
+    flex: 0 0 46px;
+    width: 46px;
+    min-width: 46px;
+    min-height: 46px;
+    padding: 2px;
+  }
+
+  .conversation-item .avatar {
+    flex: 0 0 38px;
+    width: 38px;
+    height: 38px;
+  }
+
+  .conversation-info,
+  .empty-users {
+    display: none;
+  }
+
+  /* Main chat takes the remaining available height */
+  .messages-section {
+    flex: 1 1 0;
+    width: 100%;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* Compact conversation header */
+  .conversation-header {
+    flex: 0 0 auto;
+    min-height: 66px;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .conversation-header h2 {
+    max-width: min(48vw, 220px);
+    overflow: hidden;
+    font-size: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .conversation-header p {
+    font-size: 11px;
+  }
+
+  .header-status {
+    flex: 0 0 auto;
+    margin-left: auto;
+    padding: 5px 7px;
+    font-size: 10px;
+  }
+
+  /* Only the messages area scrolls */
+  .messages {
+    flex: 1 1 0;
+    min-height: 0;
+    gap: 14px;
+    padding: 16px 12px 20px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .conversation-intro {
+    padding: 12px 6px;
+  }
+
+  .conversation-intro h3 {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  .conversation-intro p {
+    max-width: 100%;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .message-row {
+    max-width: 100%;
+    gap: 7px;
+  }
+
+  .message-content {
+    max-width: 86%;
+    min-width: 0;
+  }
+
+  .message-bubble {
+    max-width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+
+  /* Keep the composer visible below the messages */
+  .message-form {
+    position: relative;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 10px
+      max(10px, env(safe-area-inset-bottom));
+    padding-bottom: max(
+      10px,
+      env(safe-area-inset-bottom)
+    );
+  }
+
+  .composer-input-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .message-form input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 46px;
+    padding: 0 12px;
+    font-size: 16px !important;
+  }
+
+  .message-form button {
+    flex: 0 0 auto;
+    min-width: 70px;
+    height: 46px;
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  /* Keep @mention suggestions inside the viewport */
+  .mention-suggestions {
+    right: 0;
+    bottom: calc(100% + 8px);
+    left: 0;
+    width: auto;
+    max-width: 100%;
+    max-height: 35dvh;
+    overflow-y: auto;
+  }
+
+  .chat-error {
+    flex: 0 0 auto;
+    max-width: calc(100% - 20px);
+    overflow-wrap: anywhere;
+  }
+
+  .join-screen {
+    min-height: 100vh;
+    min-height: 100dvh;
+    padding: 24px 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .join-card {
+    width: 100%;
+    max-width: 420px;
+    margin: auto;
+    padding: 30px 22px 24px;
+  }
+
+  .username-field input {
+    min-width: 0;
+    font-size: 16px !important;
+  }
+
+  .join-copyright {
+    position: static;
+    margin-top: 20px;
+  }
+}
+
+@media (max-width: 380px) {
+  .conversation-header {
+    gap: 7px;
+    padding-right: 9px;
+    padding-left: 9px;
+  }
+
+  .header-avatar {
+    flex-basis: 36px;
+    width: 36px;
+    height: 36px;
+  }
+
+  .conversation-header h2 {
+    max-width: 38vw;
+  }
+
+  .header-status {
+    padding: 5px 6px;
+    font-size: 9px;
+  }
+
+  .message-form {
+    gap: 6px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+
+  .message-form button {
+    min-width: 62px;
+    padding: 0 9px;
+  }
+
+  .join-card {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+}
+
+/* Short screens and landscape phones */
+@media (max-width: 640px) and (max-height: 500px) {
+  .conversation-header {
+    min-height: 54px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+
+  .conversation-header .header-avatar {
+    width: 34px;
+    height: 34px;
+  }
+
+  .messages {
+    padding-top: 8px;
+    padding-bottom: 10px;
+  }
+
+  .conversation-intro {
+    gap: 5px;
+    padding: 5px;
+  }
+
+  .intro-icon {
+    width: 32px;
+    height: 32px;
+  }
+}

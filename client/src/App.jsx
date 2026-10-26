@@ -109,7 +109,7 @@ export default function App() {
               maxLength={30}
               autoComplete="nickname"
               required
-              autoFocus
+              
             />
           </div>
 
