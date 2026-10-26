@@ -1,195 +1,304 @@
 
 const WebSocket = require("ws");
 const crypto = require("crypto");
+
 const PORT = process.env.PORT || 8080;
+const wss = new WebSocket.Server({ port: PORT });
 
-const server = new WebSocket.Server({
-  port: PORT,
-});
-
+// Each socket maps to its connected user's information.
 const clients = new Map();
 
-function sendTo(socket, message) {
+// username (normalized) -> socket
+const usernames = new Map();
+
+function sendTo(socket, data) {
   if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
+    socket.send(JSON.stringify(data));
   }
 }
 
-function broadcast(message) {
-  const data = JSON.stringify(message);
+function broadcast(data) {
+  const payload = JSON.stringify(data);
 
-  for (const client of clients.keys()) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(data);
+  for (const socket of clients.keys()) {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.send(payload);
     }
   }
 }
 
-// Find usernames mentioned in a message.
-function getMentionedUsers(text) {
-  const usernames = [...clients.values()];
+function getOnlineUsers() {
+  return Array.from(clients.values())
+    .map((client) => client.username);
+}
 
-  return usernames.filter((username) => {
-    const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const pattern = new RegExp(
-      `(^|[^\\w])@${escaped}(?=$|[^\\w])`,
-      "i"
-    );
-
-    return pattern.test(text);
+function broadcastUsers() {
+  broadcast({
+    type: "USERS",
+    users: getOnlineUsers(),
   });
 }
 
-server.on("connection", (socket) => {
-  console.log("A client connected");
+function broadcastSystem(text) {
+  broadcast({
+    type: "SYSTEM",
+    id: crypto.randomUUID(),
+    text,
+    timestamp: new Date().toISOString(),
+  });
+}
 
-  socket.on("message", (rawData) => {
-    console.log("Received from client:", rawData.toString());
+function getMentionedUsers(text) {
+  const mentioned = new Set();
+  const matches = text.match(/@([a-zA-Z0-9_]+)/g) || [];
+
+  for (const match of matches) {
+    const name = match.slice(1).toLowerCase();
+    const socket = usernames.get(name);
+
+    if (socket && clients.has(socket)) {
+      mentioned.add(clients.get(socket).username);
+    }
+  }
+
+  return Array.from(mentioned);
+}
+
+function removeClient(socket) {
+  const client = clients.get(socket);
+
+  // Ignore repeated cleanup or unknown sockets.
+  if (!client) return;
+
+  clients.delete(socket);
+
+  const normalizedName = client.username.toLowerCase();
+
+  // Do not delete a newer connection for the same username.
+  if (usernames.get(normalizedName) === socket) {
+    usernames.delete(normalizedName);
+  }
+
+  console.log(`User disconnected: ${client.username}`);
+
+  broadcastSystem(`${client.username} left the chat`);
+  broadcastUsers();
+}
+
+wss.on("connection", (socket) => {
+  socket.isAlive = true;
+
+  console.log("New WebSocket connection");
+
+  // A pong response means the connection is alive.
+  socket.on("pong", () => {
+    socket.isAlive = true;
+  });
+
+  socket.on("message", (rawMessage) => {
+    let message;
 
     try {
-      const message = JSON.parse(rawData.toString());
-
-      // JOIN
-      if (message.type === "JOIN") {
-        const username = String(message.username || "")
-          .trim()
-          .slice(0, 30);
-
-        if (!username) {
-          sendTo(socket, {
-            type: "JOIN_ERROR",
-            text: "Please enter a valid username.",
-          });
-          return;
-        }
-
-        // Prevent duplicate usernames.
-        const alreadyExists = [...clients.values()].some(
-          (name) => name.toLowerCase() === username.toLowerCase()
-        );
-
-        if (alreadyExists) {
-          sendTo(socket, {
-            type: "JOIN_ERROR",
-            text: "That username is already in use.",
-          });
-          return;
-        }
-
-        clients.set(socket, username);
-
-        console.log("Sending JOINED to:", username);
-
-        // IMPORTANT: Tell React that joining succeeded.
-        sendTo(socket, {
-          type: "JOINED",
-          username,
-        });
-
-        broadcast({
-          type: "SYSTEM",
-          text: `${username} joined the chat`,
-          timestamp: new Date().toISOString(),
-        });
-
-        broadcast({
-          type: "USERS",
-          users: [...clients.values()],
-        });
-      }
-
-      // GROUP CHAT
-      else if (message.type === "CHAT") {
-        const username = clients.get(socket);
-        if (!username) return;
-
-        const text = String(message.text || "").trim();
-        if (!text || text.length > 1000) return;
-
-        broadcast({
-          type: "CHAT",
-          id: crypto.randomUUID(),
-          username,
-          text,
-          mentionedUsers: getMentionedUsers(text),
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // PRIVATE CHAT
-      else if (message.type === "CHAT_PRIVATE") {
-        const username = clients.get(socket);
-        if (!username) return;
-
-        const recipientName = String(message.to || "").trim();
-        const text = String(message.text || "").trim();
-
-        if (!recipientName || !text || text.length > 1000) return;
-
-        const recipientEntry = [...clients.entries()].find(
-          ([, name]) =>
-            name.toLowerCase() === recipientName.toLowerCase()
-        );
-
-        if (!recipientEntry) {
-          sendTo(socket, {
-            type: "PRIVATE_ERROR",
-            text: "This user is no longer online.",
-          });
-          return;
-        }
-
-        const [recipientSocket, recipientUsername] = recipientEntry;
-
-        const privateMessage = {
-          type: "CHAT_PRIVATE",
-          id: crypto.randomUUID(),
-          from: username,
-          to: recipientUsername,
-          text,
-          timestamp: new Date().toISOString(),
-        };
-
-        sendTo(recipientSocket, privateMessage);
-
-        // Echo to sender so their own message appears in the chat.
-        if (recipientSocket !== socket) {
-          sendTo(socket, privateMessage);
-        }
-      }
-    } catch (error) {
-      console.error("Invalid message received:", error.message);
+      message = JSON.parse(rawMessage.toString());
+    } catch {
+      sendTo(socket, {
+        type: "ERROR",
+        message: "Invalid JSON message",
+      });
+      return;
     }
-  });
 
-  socket.on("close", (code, reason) => {
-    console.log("Client disconnected:", {
-      code,
-      reason: reason.toString(),
-    });
+    // JOIN
+    if (message.type === "JOIN") {
+      const username = String(message.username || "").trim();
 
-    const username = clients.get(socket);
-    clients.delete(socket);
+      if (!/^[a-zA-Z0-9_]{1,20}$/.test(username)) {
+        sendTo(socket, {
+          type: "JOIN_ERROR",
+          message:
+            "Username must contain 1–20 letters, numbers, or underscores.",
+        });
+        return;
+      }
 
-    if (username) {
+      const normalizedName = username.toLowerCase();
+      const existingSocket = usernames.get(normalizedName);
+
+      if (
+        existingSocket &&
+        existingSocket !== socket &&
+        existingSocket.readyState === WebSocket.OPEN
+      ) {
+        sendTo(socket, {
+          type: "JOIN_ERROR",
+          message: "This username is already in use.",
+        });
+        return;
+      }
+
+      // Avoid registering one socket under multiple usernames.
+      if (clients.has(socket)) {
+        removeClient(socket);
+      }
+
+      clients.set(socket, { username });
+      usernames.set(normalizedName, socket);
+
+      console.log(`User joined: ${username}`);
+
+      sendTo(socket, {
+        type: "JOINED",
+        username,
+      });
+
+      broadcastSystem(`${username} joined the chat`);
+      broadcastUsers();
+
+      return;
+    }
+
+    // All remaining message types require a joined user.
+    const client = clients.get(socket);
+
+    if (!client) {
+      sendTo(socket, {
+        type: "ERROR",
+        message: "Join the chat before sending messages.",
+      });
+      return;
+    }
+
+    // GROUP CHAT
+    if (message.type === "CHAT") {
+      const text = String(message.text || "").trim();
+
+      if (!text) return;
+
+      if (text.length > 5000) {
+        sendTo(socket, {
+          type: "ERROR",
+          message: "Message is too long.",
+        });
+        return;
+      }
+
       broadcast({
-        type: "SYSTEM",
-        text: `${username} left the chat`,
+        type: "CHAT",
+        id: crypto.randomUUID(),
+        username: client.username,
+        text,
+        mentionedUsers: getMentionedUsers(text),
         timestamp: new Date().toISOString(),
       });
 
-      broadcast({
-        type: "USERS",
-        users: [...clients.values()],
-      });
+      return;
     }
+
+    // PRIVATE CHAT
+    if (message.type === "CHAT_PRIVATE") {
+      const text = String(message.text || "").trim();
+      const recipientName = String(
+        message.to || message.recipient || message.username || ""
+      ).trim();
+
+      if (!text || !recipientName) return;
+
+      if (text.length > 5000) {
+        sendTo(socket, {
+          type: "PRIVATE_ERROR",
+          message: "Message is too long.",
+        });
+        return;
+      }
+
+      const recipientSocket = usernames.get(
+        recipientName.toLowerCase()
+      );
+
+      if (
+        !recipientSocket ||
+        !clients.has(recipientSocket) ||
+        recipientSocket.readyState !== WebSocket.OPEN
+      ) {
+        sendTo(socket, {
+          type: "PRIVATE_ERROR",
+          message: `${recipientName} is not online.`,
+        });
+        return;
+      }
+
+      const privateMessage = {
+        type: "CHAT_PRIVATE",
+        id: crypto.randomUUID(),
+        username: client.username,
+        to: clients.get(recipientSocket).username,
+        text,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Deliver to the recipient.
+      sendTo(recipientSocket, privateMessage);
+
+      // Echo to sender so their UI can display the sent message.
+      if (recipientSocket !== socket) {
+        sendTo(socket, privateMessage);
+      }
+
+      return;
+    }
+  });
+
+  socket.on("close", () => {
+    removeClient(socket);
   });
 
   socket.on("error", (error) => {
     console.error("WebSocket error:", error.message);
+    removeClient(socket);
   });
 });
 
-server.on("listening", () => {
+// Heartbeat: detect dead or unreachable connections.
+const heartbeat = setInterval(() => {
+  for (const socket of wss.clients) {
+    if (socket.isAlive === false) {
+      console.log("Terminating stale WebSocket connection");
+      socket.terminate();
+      continue;
+    }
+
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.isAlive = false;
+      socket.ping();
+    }
+  }
+}, 30000);
+
+wss.on("close", () => {
+  clearInterval(heartbeat);
+});
+
+wss.on("listening", () => {
   console.log(`WebSocket server listening on port ${PORT}`);
 });
+
+wss.on("error", (error) => {
+  console.error("WebSocket server error:", error);
+});
+
+function shutdown() {
+  clearInterval(heartbeat);
+
+  for (const socket of wss.clients) {
+    socket.terminate();
+  }
+
+  wss.close(() => {
+    process.exit(0);
+  });
+
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
