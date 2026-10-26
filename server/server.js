@@ -1,8 +1,12 @@
 
 const WebSocket = require("ws");
 const crypto = require("crypto");
+const PORT = process.env.PORT || 8080;
 
-const server = new WebSocket.Server({ port: 8080 });
+const server = new WebSocket.Server({
+  port: PORT,
+});
+
 const clients = new Map();
 
 function sendTo(socket, message) {
@@ -186,4 +190,6 @@ server.on("connection", (socket) => {
   });
 });
 
-console.log("WebSocket server running at ws://localhost:8080");
+server.on("listening", () => {
+  console.log(`WebSocket server listening on port ${PORT}`);
+});
