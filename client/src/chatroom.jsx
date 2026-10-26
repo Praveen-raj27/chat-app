@@ -1,405 +1,515 @@
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "./useChat";
+import "./App.css";
 
 export default function ChatRoom({ username }) {
-  const { status, messages, users, error, sendMessage } =
-    useChat(username);
+  const {
+    status,
+    messages,
+    users,
+    error,
+    sendMessage,
+    sendPrivateMessage,
+    clearError,
+  } = useChat(username);
 
+  const [selectedUser, setSelectedUser] = useState(null);
   const [text, setText] = useState("");
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [isMentionOpen, setIsMentionOpen] = useState(false);
+  const [cursorPos, setCursorPos] = useState(0);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(true);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
   const inputRef = useRef(null);
-  const bottomRef = useRef(null);
 
-  // Detect @mention being typed immediately before the cursor.
-  const cursor = inputRef.current?.selectionStart ?? text.length;
-  const textBeforeCursor = text.slice(0, cursor);
-  const mentionMatch = textBeforeCursor.match(/@([^\s@]*)$/);
-  const mentionQuery = mentionMatch?.[1] ?? null;
+  const otherUsers = users.filter(
+    (user) => user.toLowerCase() !== username.toLowerCase()
+  );
 
-  const suggestions =
-    mentionQuery === null
-      ? []
-      : users
-          .filter(
-            (user) =>
-              user.toLowerCase() !== username.toLowerCase()
-          )
-          .filter((user) =>
-            user.toLowerCase().startsWith(mentionQuery.toLowerCase())
-          )
-          .slice(0, 6);
+  // Detect an @mention immediately before the cursor.
+  const mentionMatch = useMemo(() => {
+    if (selectedUser || !suggestionsOpen) return null;
 
-  const showSuggestions =
-    isMentionOpen &&
-    mentionQuery !== null &&
-    suggestions.length > 0;
+    const beforeCursor = text.slice(0, cursorPos);
+    return beforeCursor.match(/(?:^|\s)@([^\s@]*)$/);
+  }, [text, cursorPos, selectedUser, suggestionsOpen]);
 
+  const mentionQuery = mentionMatch ? mentionMatch[1] : null;
+
+  // Filter suggestions based on the text after @.
+  const suggestions = useMemo(() => {
+    if (mentionQuery === null) return [];
+
+    return otherUsers.filter((user) =>
+      user.toLowerCase().startsWith(mentionQuery.toLowerCase())
+    );
+  }, [mentionQuery, otherUsers]);
+
+  // Reset keyboard selection whenever the query changes.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    setActiveSuggestion(-1);
+  }, [mentionQuery, selectedUser]);
 
-  function selectMention(selectedUser) {
-    const input = inputRef.current;
-    if (!input) return;
+  const conversationMessages = useMemo(() => {
+    if (!selectedUser) {
+      return messages.filter(
+        (message) =>
+          message.type === "CHAT" || message.type === "SYSTEM"
+      );
+    }
 
-    const caret = input.selectionStart;
-    const before = text.slice(0, caret);
-    const after = text.slice(caret);
-    const match = before.match(/@([^\s@]*)$/);
+    return messages.filter(
+      (message) =>
+        message.type === "CHAT_PRIVATE" &&
+        (
+          (
+            message.from.toLowerCase() === username.toLowerCase() &&
+            message.to.toLowerCase() === selectedUser.toLowerCase()
+          ) ||
+          (
+            message.from.toLowerCase() === selectedUser.toLowerCase() &&
+            message.to.toLowerCase() === username.toLowerCase()
+          )
+        )
+    );
+  }, [messages, selectedUser, username]);
 
-    if (!match) return;
+  function selectMention(user) {
+    if (!mentionMatch) return;
 
-    const start = before.length - match[0].length;
-    const inserted = `@${selectedUser} `;
+    const beforeCursor = text.slice(0, cursorPos);
+    const afterCursor = text.slice(cursorPos);
 
-    const updated =
-      text.slice(0, start) + inserted + after;
+    // Replace the current @query with the selected username.
+    const replacement = beforeCursor.replace(
+      /(^|\s)@([^\s@]*)$/,
+      (_, whitespace) => `${whitespace}@${user} `
+    );
 
-    setText(updated);
-    setActiveIndex(0);
-    setIsMentionOpen(false);
+    const nextText = replacement + afterCursor;
+    const nextCursor = replacement.length;
+
+    setText(nextText);
+    setCursorPos(nextCursor);
+    setSuggestionsOpen(false);
+    setActiveSuggestion(-1);
 
     requestAnimationFrame(() => {
-      input.focus();
-      const nextCaret = start + inserted.length;
-      input.setSelectionRange(nextCaret, nextCaret);
+      if (!inputRef.current) return;
+
+      inputRef.current.focus();
+      inputRef.current.setSelectionRange(nextCursor, nextCursor);
     });
   }
 
+  function handleInputChange(event) {
+    setText(event.target.value);
+    setCursorPos(
+      event.target.selectionStart ?? event.target.value.length
+    );
+    setSuggestionsOpen(true);
+    setActiveSuggestion(-1);
+
+    if (error) clearError?.();
+  }
+
+  function updateCursor(event) {
+    setCursorPos(
+      event.target.selectionStart ?? event.target.value.length
+    );
+  }
+
   function handleKeyDown(event) {
-    if (showSuggestions) {
+    if (suggestionsOpen && suggestions.length > 0) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setActiveIndex(
-          (index) => (index + 1) % suggestions.length
+
+        setActiveSuggestion((index) =>
+          index < suggestions.length - 1 ? index + 1 : 0
         );
         return;
       }
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setActiveIndex(
-          (index) =>
-            (index - 1 + suggestions.length) % suggestions.length
+
+        setActiveSuggestion((index) =>
+          index <= 0 ? suggestions.length - 1 : index - 1
         );
+        return;
+      }
+
+      if (event.key === "Enter" && !event.shiftKey) {
+        // Select only if the user has highlighted an option.
+        if (activeSuggestion >= 0) {
+          event.preventDefault();
+          selectMention(suggestions[activeSuggestion]);
+        }
         return;
       }
 
       if (event.key === "Escape") {
         event.preventDefault();
-        setIsMentionOpen(false);
-        return;
-      }
-
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        selectMention(suggestions[activeIndex]);
+        setSuggestionsOpen(false);
+        setActiveSuggestion(-1);
         return;
       }
     }
 
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      handleSend();
+    if (event.key === "Escape") {
+      setSuggestionsOpen(false);
+      setActiveSuggestion(-1);
     }
   }
 
-  function handleSend(event) {
-    event?.preventDefault();
+  function handleSubmit(event) {
+    event.preventDefault();
 
-    const message = text.trim();
-    if (!message) return;
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
 
-    const sent = sendMessage(message);
+    const sent = selectedUser
+      ? sendPrivateMessage(selectedUser, trimmedText)
+      : sendMessage(trimmedText);
 
     if (sent) {
       setText("");
-      setActiveIndex(0);
-      setIsMentionOpen(false);
+      setCursorPos(0);
+      setSuggestionsOpen(true);
+      setActiveSuggestion(-1);
     }
   }
 
-  function handleTextChange(event) {
-    const value = event.target.value;
-    const caret = event.target.selectionStart;
-    const beforeCursor = value.slice(0, caret);
-    const match = beforeCursor.match(/@([^\s@]*)$/);
+  // Highlight usernames identified by the server.
+  function renderMessageText(message) {
+    const mentionedUsers = Array.isArray(message.mentionedUsers)
+      ? message.mentionedUsers
+      : [];
 
-    setText(value);
-    setActiveIndex(0);
+    if (message.type !== "CHAT" || mentionedUsers.length === 0) {
+      return message.text;
+    }
 
-    // Open only when the user is actively typing an @mention.
-    setIsMentionOpen(match !== null);
-  }
-
-  function renderMessageText(messageText) {
-    const knownUsers = [...users, username].filter(
-      (user, index, all) =>
-        all.findIndex(
-          (item) => item.toLowerCase() === user.toLowerCase()
-        ) === index
-    );
-
-    if (!knownUsers.length) return messageText;
-
-    const escapedUsers = knownUsers
+    const escapedNames = mentionedUsers
+      .slice()
       .sort((a, b) => b.length - a.length)
-      .map((user) =>
-        user.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+      .map((name) =>
+        name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
       );
 
     const pattern = new RegExp(
-      `(@(?:${escapedUsers.join("|")}))(?=$|[^\\w])`,
+      `(^|[^\\w])(@(?:${escapedNames.join("|")}))(?=$|[^\\w])`,
       "gi"
     );
 
-    return messageText.split(pattern).map((part, index) => {
-      const isMention = knownUsers.some(
-        (user) =>
-          part.toLowerCase() === `@${user}`.toLowerCase()
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = pattern.exec(message.text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(message.text.slice(lastIndex, match.index));
+      }
+
+      if (match[1]) parts.push(match[1]);
+
+      parts.push(
+        <span
+          className="message-mention"
+          key={`mention-${match.index}`}
+        >
+          {match[2]}
+        </span>
       );
 
-      return isMention ? (
-        <span className="chat-mention" key={index}>
-          {part}
-        </span>
-      ) : (
-        part
-      );
-    });
+      lastIndex = pattern.lastIndex;
+    }
+
+    if (lastIndex < message.text.length) {
+      parts.push(message.text.slice(lastIndex));
+    }
+
+    return parts.length ? parts : message.text;
   }
 
   return (
     <main className="chat-screen">
-      <section className="chat-panel">
-        <header className="chat-header">
-          <div className="chat-brand">
-            <div className="chat-brand-icon">C</div>
-            <div>
-              <h1>Connect</h1>
-              <p>Real-time chat room</p>
-            </div>
+      <aside className="users-sidebar">
+        <div className="sidebar-heading">
+          <div className="brand-mark">HB</div>
+          <div>
+            <h2>Hey Buddies</h2>
+            <span className="sidebar-subtitle">
+              Signed in as {username}
+            </span>
+          </div>
+        </div>
+
+        <div className="sidebar-section-label">
+          CONVERSATIONS
+        </div>
+
+        <button
+          type="button"
+          className={`conversation-item ${
+            !selectedUser ? "active" : ""
+          }`}
+          onClick={() => {
+            setSelectedUser(null);
+            setText("");
+            setCursorPos(0);
+            setSuggestionsOpen(true);
+            setActiveSuggestion(-1);
+          }}
+        >
+          <div className="avatar group-avatar">#</div>
+
+          <div className="conversation-info">
+            <strong>Group Chat</strong>
+            <span>Everyone online</span>
+          </div>
+        </button>
+
+        <div className="sidebar-section-label">
+          DIRECT MESSAGES
+          <span>{otherUsers.length}</span>
+        </div>
+
+        <div className="users-list">
+          {otherUsers.map((user) => (
+            <button
+              type="button"
+              key={user}
+              className={`conversation-item ${
+                selectedUser === user ? "active" : ""
+              }`}
+              onClick={() => {
+                setSelectedUser(user);
+                setText("");
+                setCursorPos(0);
+                setSuggestionsOpen(false);
+                setActiveSuggestion(-1);
+              }}
+            >
+              <div className="avatar">
+                {user.charAt(0).toUpperCase()}
+              </div>
+
+              <div className="conversation-info">
+                <strong>{user}</strong>
+                <span>
+                  <i className="online-dot" />
+                  Online
+                </span>
+              </div>
+            </button>
+          ))}
+
+          {otherUsers.length === 0 && (
+            <p className="empty-users">
+              No other users online yet.
+            </p>
+          )}
+        </div>
+
+        <div className="sidebar-footer">
+          <span
+            className={`status-dot ${
+              status === "connected" ? "connected" : ""
+            }`}
+          />
+
+          {status === "connected"
+            ? "Connected"
+            : status === "connecting"
+            ? "Connecting..."
+            : status === "error"
+            ? "Connection error"
+            : "Disconnected"}
+        </div>
+      </aside>
+
+      <section className="messages-section">
+        <header className="conversation-header">
+          <div className="avatar header-avatar">
+            {selectedUser
+              ? selectedUser.charAt(0).toUpperCase()
+              : "#"}
           </div>
 
-          <div className="connection-status">
-            <span className={`status-dot ${status}`} />
-            <span>{status}</span>
+          <div>
+            <h2>{selectedUser || "Group Chat"}</h2>
+            <p>
+              {selectedUser
+                ? "Private conversation"
+                : `${users.length} user(s) connected`}
+            </p>
           </div>
+
+          <span className="header-status">
+            {status === "connected" ? "● Online" : status}
+          </span>
         </header>
 
         {error && (
           <div className="chat-error" role="alert">
             {error}
+            <button
+              type="button"
+              onClick={() => clearError?.()}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
           </div>
         )}
 
-        <div className="chat-layout">
-          <section className="messages-section">
-            <div className="messages-heading">
-              <h2>Conversation</h2>
-              <span>
-                {messages.filter((m) => m.type === "CHAT").length} messages
-              </span>
+        <div className="messages">
+          <div className="conversation-intro">
+            <div className="intro-icon">
+              {selectedUser ? "✉" : "#"}
             </div>
 
-            <div className="messages-list" aria-live="polite">
-              {messages.map((message, index) => {
-                if (message.type === "SYSTEM") {
-                  return (
-                    <div
-                      className="system-message"
-                      key={message.id || index}
-                    >
-                      <span>{message.text}</span>
-                    </div>
-                  );
-                }
+            <h3>
+              {selectedUser
+                ? `Chat with ${selectedUser}`
+                : "Welcome to Group Chat"}
+            </h3>
 
-                const isOwnMessage =
-                  message.username?.toLowerCase() ===
-                  username.toLowerCase();
+            <p>
+              {selectedUser
+                ? "Messages here are private to this conversation."
+                : "Type @ to mention someone who is online."}
+            </p>
+          </div>
 
-                const isMentioned = (
-                  message.mentionedUsers || []
-                ).some(
-                  (user) =>
-                    user.toLowerCase() === username.toLowerCase()
-                );
+          {conversationMessages.map((message, index) => {
+            if (message.type === "SYSTEM") {
+              return (
+                <div
+                  className="system-message"
+                  key={`${message.timestamp}-${message.text}-${index}`}
+                >
+                  {message.text}
+                </div>
+              );
+            }
 
-                return (
-                  <article
-                    className={`message-row ${
-                      isOwnMessage ? "own-message" : ""
-                    }`}
-                    key={message.id || index}
-                  >
-                    <div className="message-avatar">
-                      {message.username?.charAt(0).toUpperCase()}
-                    </div>
+            const sender =
+              message.type === "CHAT_PRIVATE"
+                ? message.from
+                : message.username;
 
-                    <div className="message-content">
-                      <div className="message-meta">
-                        <strong>
-                          {isOwnMessage ? "You" : message.username}
-                        </strong>
+            const isOwnMessage =
+              sender.toLowerCase() === username.toLowerCase();
 
-                        <time>
-                          {message.timestamp
-                            ? new Date(
-                                message.timestamp
-                              ).toLocaleTimeString([], {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : ""}
-                        </time>
-
-                        {isMentioned && (
-                          <span className="mention-notification">
-                            @ mentioned you
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="message-bubble">
-                        {renderMessageText(message.text)}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-
-              <div ref={bottomRef} />
-            </div>
-
-            <form
-              className="message-composer"
-              onSubmit={handleSend}
-            >
-              <div className="composer-input-wrap">
-                {showSuggestions && (
-                  <div
-                    className="mention-suggestions"
-                    role="listbox"
-                  >
-                    <div className="suggestion-heading">
-                      MENTION SOMEONE
-                    </div>
-
-                    {suggestions.map((user, index) => (
-                      <button
-                        type="button"
-                        role="option"
-                        aria-selected={index === activeIndex}
-                        className={`mention-option ${
-                          index === activeIndex ? "active" : ""
-                        }`}
-                        key={user}
-                        onMouseDown={(event) =>
-                          event.preventDefault()
-                        }
-                        onClick={() => selectMention(user)}
-                      >
-                        <span className="suggestion-avatar">
-                          {user.charAt(0).toUpperCase()}
-                        </span>
-
-                        <span className="suggestion-name">
-                          {user}
-                        </span>
-
-                        <span className="suggestion-at">@</span>
-                      </button>
-                    ))}
+            return (
+              <div
+                className={`message-row ${
+                  isOwnMessage ? "own-message" : ""
+                }`}
+                key={message.id || `${message.timestamp}-${index}`}
+              >
+                {!isOwnMessage && (
+                  <div className="avatar message-avatar">
+                    {sender.charAt(0).toUpperCase()}
                   </div>
                 )}
 
-                <textarea
-                  ref={inputRef}
-                  value={text}
-                  onChange={handleTextChange}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Write a message... Type @ to mention someone"
-                  rows={2}
-                  maxLength={1000}
-                  aria-label="Chat message"
-                  disabled={status !== "connected"}
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="send-button"
-                disabled={!text.trim() || status !== "connected"}
-              >
-                Send <span aria-hidden="true">↗</span>
-              </button>
-
-              <p className="composer-hint">
-                Press Enter to send · Shift + Enter for a new line ·
-                @ to mention
-              </p>
-            </form>
-          </section>
-
-          <aside className="users-sidebar">
-            <div className="users-heading">
-              <h2>People</h2>
-              <span>{users.length}</span>
-            </div>
-
-            <div className="current-user-card">
-              <span className="online-avatar">
-                {username.charAt(0).toUpperCase()}
-                <i />
-              </span>
-
-              <div>
-                <strong>{username}</strong>
-                <small>You · Online</small>
-              </div>
-            </div>
-
-            <div className="users-list">
-              {users
-                .filter(
-                  (user) =>
-                    user.toLowerCase() !== username.toLowerCase()
-                )
-                .map((user) => (
-                  <button
-                    className="user-item"
-                    type="button"
-                    key={user}
-                    onClick={() => {
-                      setText((previous) =>
-                        `${previous}${
-                          previous &&
-                          !previous.endsWith(" ")
-                            ? " "
-                            : ""
-                        }@${user} `
-                      );
-
-                      setIsMentionOpen(false);
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    <span className="online-avatar">
-                      {user.charAt(0).toUpperCase()}
-                      <i />
+                <div className="message-content">
+                  {!isOwnMessage && (
+                    <span className="message-sender">
+                      {sender}
                     </span>
+                  )}
 
-                    <span>{user}</span>
-                    <span className="user-mention-action">@</span>
-                  </button>
-                ))}
-            </div>
-          </aside>
+                  <div className="message-bubble">
+                    {renderMessageText(message)}
+                  </div>
+
+                  <time className="message-time">
+                    {new Date(message.timestamp).toLocaleTimeString(
+                      [],
+                      {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      }
+                    )}
+                  </time>
+                </div>
+              </div>
+            );
+          })}
         </div>
+
+        <form className="message-form" onSubmit={handleSubmit}>
+          <div className="composer-input-wrap">
+            {suggestionsOpen &&
+              !selectedUser &&
+              mentionQuery !== null &&
+              suggestions.length > 0 && (
+                <div
+                  className="mention-suggestions"
+                  role="listbox"
+                  aria-label="Mention suggestions"
+                >
+                  <div className="mention-heading">
+                    MENTION SOMEONE
+                  </div>
+
+                  {suggestions.map((user, index) => (
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === activeSuggestion}
+                      className={`mention-option ${
+                        index === activeSuggestion ? "selected" : ""
+                      }`}
+                      key={user}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectMention(user)}
+                    >
+                      <span className="avatar mention-avatar">
+                        {user.charAt(0).toUpperCase()}
+                      </span>
+
+                      <span className="mention-user-name">
+                        {user}
+                      </span>
+
+                      <span className="mention-at">@</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+            <input
+              ref={inputRef}
+              value={text}
+              onChange={handleInputChange}
+              onClick={updateCursor}
+              onKeyUp={updateCursor}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setSuggestionsOpen(true)}
+              placeholder={
+                selectedUser
+                  ? `Message ${selectedUser} privately...`
+                  : "Message everyone... Type @ to mention"
+              }
+              maxLength={1000}
+              disabled={status !== "connected"}
+              aria-label="Chat message"
+              autoComplete="off"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={status !== "connected" || !text.trim()}
+          >
+            Send <span>➤</span>
+          </button>
+        </form>
       </section>
     </main>
   );
