@@ -236,7 +236,43 @@ export default function ChatRoom({ username }) {
     <main className="chat-screen">
       <aside className="users-sidebar">
         <div className="sidebar-heading">
-          <div className="brand-mark">HB</div>
+         <div className="">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="90 90 475 435"
+              width="24"
+              height="24"
+              role="img"
+              aria-label="HB logo"
+            >
+              <defs>
+                <linearGradient
+                  id="hb-grad"
+                  gradientUnits="userSpaceOnUse"
+                  x1="100"
+                  y1="100"
+                  x2="550"
+                  y2="510"
+                >
+                  <stop offset="0" stop-color="#8b83f5" />
+                  <stop offset="1" stop-color="#5b54e6" />
+                </linearGradient>
+              </defs>
+              <g
+                fill="none"
+                stroke="url(#hb-grad)"
+                stroke-width="31"
+                stroke-linejoin="miter"
+                stroke-linecap="butt"
+              >
+                <path d="M113 113 H430 A111 111 0 0 1 430 335 A105 82.5 0 0 1 430 500 H303 V398" />
+                <path d="M303 113 V255 H228" />
+                <path d="M228 113 V500" />
+                <path d="M228 335 H430" />
+                <path d="M129 158 V500 H228" />
+              </g>
+            </svg>
+          </div>
           <div>
             <h2>Hey Buddies</h2>
             <span className="sidebar-subtitle">

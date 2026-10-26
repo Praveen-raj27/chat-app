@@ -77,7 +77,10 @@ CHAT MAIN PAGE
 /* ========================================
    JOIN SCREEN
 ======================================== */
-
+.logo{
+      margin: auto;
+    margin-bottom: 20px;
+}
 .join-screen {
   position: relative;
   display: flex;

@@ -23,19 +23,41 @@ export default function App() {
         <div className="join-glow join-glow-two" />
 
         <form className="join-card" onSubmit={joinChat}>
-          <div className="brand-mark">
+          <div className="logo">
             <svg
-              viewBox="0 0 24 24"
-              width="30"
-              height="30"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="90 90 475 435"
+              width="64"
+              height="59"
+              role="img"
+              aria-label="HB logo"
             >
-              <path d="M21 11.5a8.4 8.4 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.4 8.4 0 0 1-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.4 8.4 0 0 1 3.8-.9h.5a8.5 8.5 0 0 1 8 8v.5Z" />
+              <defs>
+                <linearGradient
+                  id="hb-grad"
+                  gradientUnits="userSpaceOnUse"
+                  x1="100"
+                  y1="100"
+                  x2="550"
+                  y2="510"
+                >
+                  <stop offset="0" stop-color="#8b83f5" />
+                  <stop offset="1" stop-color="#5b54e6" />
+                </linearGradient>
+              </defs>
+              <g
+                fill="none"
+                stroke="url(#hb-grad)"
+                stroke-width="31"
+                stroke-linejoin="miter"
+                stroke-linecap="butt"
+              >
+                <path d="M113 113 H430 A111 111 0 0 1 430 335 A105 82.5 0 0 1 430 500 H303 V398" />
+                <path d="M303 113 V255 H228" />
+                <path d="M228 113 V500" />
+                <path d="M228 335 H430" />
+                <path d="M129 158 V500 H228" />
+              </g>
             </svg>
           </div>
 
