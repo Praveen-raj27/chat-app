@@ -2599,3 +2599,102 @@ body {
   }
 }
 
+
+/* Main smiley + action button */
+
+
+.action-menu-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.action-trigger-smiley {
+  font-size: 27px;
+  line-height: 1;
+}
+
+.action-trigger-plus {
+  position: absolute;
+  top: 0;
+  right: -1px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #5b54e6;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* Two icon-only action choices */
+.chat-action-menu {
+  position: absolute;
+  z-index: 3000;
+  bottom: calc(100% + 10px);
+  right: -12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.18);
+  width: 60px;
+}
+
+.chat-action-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+  min-width: auto;
+}
+
+.chat-action-menu button:hover {
+  background: #e2e8f0;
+  transform: scale(1.05);
+}
+
+.action-menu-emoji {
+  font-size: 24px;
+  line-height: 1;
+}
+
+/* Keep the existing emoji picker within the mobile viewport */
+.whatsapp-emoji-picker {
+  box-sizing: border-box;
+  z-index: 3001;
+  max-width: calc(100vw - 24px);
+}
+
+@media (max-width: 600px) {
+  .chat-action-menu {
+    right: 0;
+    left: auto;
+    max-width: calc(100vw - 24px);
+  }
+
+  
+}
+
