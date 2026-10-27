@@ -50,29 +50,30 @@ export default function ChatRoom({ username }) {
     setActiveSuggestion(-1);
   }, [mentionQuery, selectedUser]);
 
-  const conversationMessages = useMemo(() => {
-    if (!selectedUser) {
-      return messages.filter(
-        (message) =>
-          message.type === "CHAT" || message.type === "SYSTEM"
-      );
-    }
+const conversationMessages = useMemo(() => {
+  const currentUser = String(username || "").toLowerCase();
+  const recipient = String(selectedUser || "").toLowerCase();
 
-    return messages.filter(
-      (message) =>
-        message.type === "CHAT_PRIVATE" &&
-        (
-          (
-            message.from.toLowerCase() === username.toLowerCase() &&
-            message.to.toLowerCase() === selectedUser.toLowerCase()
-          ) ||
-          (
-            message.from.toLowerCase() === selectedUser.toLowerCase() &&
-            message.to.toLowerCase() === username.toLowerCase()
-          )
-        )
+  return messages.filter((message) => {
+    if (message.type !== "CHAT_PRIVATE") return false;
+
+    // Support both backend message formats.
+    const sender = String(
+      message.from ?? message.username ?? message.sender ?? ""
+    ).toLowerCase();
+
+    const receiver = String(
+      message.to ?? message.recipient ?? ""
+    ).toLowerCase();
+
+    if (!sender || !receiver) return false;
+
+    return (
+      (sender === currentUser && receiver === recipient) ||
+      (sender === recipient && receiver === currentUser)
     );
-  }, [messages, selectedUser, username]);
+  });
+}, [messages, username, selectedUser]);
 
   function selectMention(user) {
     if (!mentionMatch) return;

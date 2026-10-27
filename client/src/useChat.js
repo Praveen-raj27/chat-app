@@ -31,107 +31,107 @@ export function useChat(username) {
     setUsers([]);
     setError("");
 
+    const isCurrent = () =>
+      active && socketRef.current === socket;
+
+    function handleOpen() {
+      if (!isCurrent()) {
+        socket?.close();
+        return;
+      }
+
+      socket.send(
+        JSON.stringify({
+          type: "JOIN",
+          username: cleanUsername,
+        })
+      );
+    }
+
+    function handleMessage(event) {
+      if (!isCurrent()) return;
+
+      let message;
+
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        console.error("Could not parse server message");
+        return;
+      }
+
+      if (!message || typeof message.type !== "string") return;
+
+      switch (message.type) {
+        case "JOINED":
+          setStatus("connected");
+          setError("");
+          break;
+
+        case "JOIN_ERROR":
+          setStatus("error");
+          setError(
+            message.text || "Unable to join. Try another username."
+          );
+          break;
+
+        case "CHAT":
+        case "CHAT_PRIVATE":
+        case "SYSTEM":
+          if (
+            typeof message.text === "string" &&
+            typeof message.timestamp === "string"
+          ) {
+            setMessages((previous) => [...previous, message]);
+          }
+          break;
+
+        case "USERS":
+          setUsers(
+            Array.isArray(message.users)
+              ? message.users.filter(
+                  (user) => typeof user === "string"
+                )
+              : []
+          );
+          break;
+
+        case "PRIVATE_ERROR":
+          setError(
+            message.text || "Unable to send the private message."
+          );
+          break;
+
+        default:
+          break;
+      }
+    }
+
+    function handleError() {
+      if (!isCurrent()) return;
+
+      setStatus("error");
+      setError("Unable to connect to the chat server.");
+    }
+
+    function handleClose(event) {
+      if (!isCurrent()) return;
+
+      setStatus("disconnected");
+      setUsers([]);
+
+      console.log("WebSocket closed:", {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
+    }
+
     const connectTimer = setTimeout(() => {
       if (!active) return;
 
       socket = new WebSocket(WS_URL);
       socketRef.current = socket;
-
-      const isCurrent = () =>
-        active && socketRef.current === socket;
-
-      function handleOpen() {
-        if (!isCurrent()) {
-          socket.close();
-          return;
-        }
-
-        socket.send(
-          JSON.stringify({
-            type: "JOIN",
-            username: cleanUsername,
-          })
-        );
-      }
-
-      function handleMessage(event) {
-        if (!isCurrent()) return;
-
-        let message;
-
-        try {
-          message = JSON.parse(event.data);
-        } catch {
-          console.error("Could not parse server message");
-          return;
-        }
-
-        if (!message || typeof message.type !== "string") return;
-
-        switch (message.type) {
-          case "JOINED":
-            setStatus("connected");
-            setError("");
-            break;
-
-          case "JOIN_ERROR":
-            setStatus("error");
-            setError(
-              message.text || "Unable to join. Try another username."
-            );
-            break;
-
-          case "CHAT":
-          case "CHAT_PRIVATE":
-          case "SYSTEM":
-            if (
-              typeof message.text === "string" &&
-              typeof message.timestamp === "string"
-            ) {
-              setMessages((previous) => [...previous, message]);
-            }
-            break;
-
-          case "USERS":
-            setUsers(
-              Array.isArray(message.users)
-                ? message.users.filter(
-                    (user) => typeof user === "string"
-                  )
-                : []
-            );
-            break;
-
-          case "PRIVATE_ERROR":
-            setError(
-              message.text || "Unable to send the private message."
-            );
-            break;
-
-          default:
-            break;
-        }
-      }
-
-      function handleError() {
-        if (!isCurrent()) return;
-
-        setStatus("error");
-        setError("Unable to connect to the chat server.");
-      }
-
-      function handleClose(event) {
-        if (!isCurrent()) return;
-
-        setStatus("disconnected");
-        setUsers([]);
-
-        console.log("WebSocket closed:", {
-          code: event.code,
-          reason: event.reason,
-          wasClean: event.wasClean,
-        });
-      }
 
       socket.addEventListener("open", handleOpen);
       socket.addEventListener("message", handleMessage);
@@ -157,8 +157,6 @@ export function useChat(username) {
       if (socket.readyState === WebSocket.OPEN) {
         socket.close();
       } else if (socket.readyState === WebSocket.CONNECTING) {
-        // Avoid closing a connecting socket immediately.
-        // Close it once the handshake completes.
         socket.addEventListener(
           "open",
           () => socket.close(),
