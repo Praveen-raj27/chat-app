@@ -20,13 +20,18 @@ export default function ChatRoom({ username }) {
   const [suggestionsOpen, setSuggestionsOpen] = useState(true);
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
+  // Unread private-message counts, keyed by normalized username.
+  const [unreadCounts, setUnreadCounts] = useState({});
+
   const inputRef = useRef(null);
 
-  // Normalize usernames safely.
+  // Prevent the same incoming message from being counted twice.
+  const processedPrivateMessagesRef = useRef(new Set());
+
   const currentUsername = String(username ?? "").trim();
   const normalizedUsername = currentUsername.toLowerCase();
 
-  // Protect against unexpected or malformed user-list data.
+  // Normalize the online users list safely.
   const otherUsers = useMemo(() => {
     const safeUsers = Array.isArray(users) ? users : [];
 
@@ -34,13 +39,92 @@ export default function ChatRoom({ username }) {
       ...new Set(
         safeUsers
           .filter(
-            (user) => typeof user === "string" && user.trim().length > 0
+            (user) =>
+              typeof user === "string" && user.trim().length > 0
           )
           .map((user) => user.trim())
-          .filter((user) => user.toLowerCase() !== normalizedUsername)
+          .filter(
+            (user) => user.toLowerCase() !== normalizedUsername
+          )
       ),
     ];
   }, [users, normalizedUsername]);
+
+  // Count new private messages received while their conversation
+  // is not currently open.
+  useEffect(() => {
+    const safeMessages = Array.isArray(messages) ? messages : [];
+    const processed = processedPrivateMessagesRef.current;
+
+    safeMessages.forEach((message) => {
+      if (!message || message.type !== "CHAT_PRIVATE") return;
+
+      const sender = String(
+        message.from ?? message.username ?? message.sender ?? ""
+      ).trim();
+
+      const recipient = String(
+        message.to ?? message.recipient ?? ""
+      ).trim();
+
+      if (!sender || !recipient) return;
+
+      const senderKey = sender.toLowerCase();
+      const recipientKey = recipient.toLowerCase();
+
+      // Use the server message ID when available.
+      // Fall back to a composite key for older server responses.
+      const messageKey = String(
+        message.id ??
+          [
+            message.timestamp ?? "",
+            senderKey,
+            recipientKey,
+            message.text ?? "",
+          ].join("|")
+      );
+
+      if (processed.has(messageKey)) return;
+
+      // Mark it as processed before updating state.
+      processed.add(messageKey);
+
+      // Count only messages addressed to the current user.
+      if (recipientKey !== normalizedUsername) return;
+
+      // Never count messages sent by the current user.
+      if (senderKey === normalizedUsername) return;
+
+      // Messages in the currently open conversation are considered read.
+      if (
+        selectedUser &&
+        selectedUser.trim().toLowerCase() === senderKey
+      ) {
+        return;
+      }
+
+      setUnreadCounts((previous) => ({
+        ...previous,
+        [senderKey]: (previous[senderKey] || 0) + 1,
+      }));
+    });
+  }, [messages, normalizedUsername, selectedUser]);
+
+  // Clear the unread badge when opening that user's conversation.
+  useEffect(() => {
+    if (!selectedUser) return;
+
+    const selectedKey = selectedUser.trim().toLowerCase();
+
+    setUnreadCounts((previous) => {
+      if (!previous[selectedKey]) return previous;
+
+      const next = { ...previous };
+      delete next[selectedKey];
+
+      return next;
+    });
+  }, [selectedUser]);
 
   // Detect an @mention immediately before the cursor.
   const mentionMatch = useMemo(() => {
@@ -52,7 +136,7 @@ export default function ChatRoom({ username }) {
 
   const mentionQuery = mentionMatch ? mentionMatch[1] : null;
 
-  // Filter mention suggestions safely.
+  // Filter mention suggestions.
   const suggestions = useMemo(() => {
     if (mentionQuery === null) return [];
 
@@ -68,7 +152,7 @@ export default function ChatRoom({ username }) {
     setActiveSuggestion(-1);
   }, [mentionQuery, selectedUser]);
 
-  // Show only messages belonging to the selected conversation.
+  // Show messages belonging to the selected conversation.
   const conversationMessages = useMemo(() => {
     const safeMessages = Array.isArray(messages) ? messages : [];
 
@@ -80,17 +164,13 @@ export default function ChatRoom({ username }) {
       );
     }
 
-    const currentUser = normalizedUsername;
-    const recipient = String(selectedUser ?? "")
-      .trim()
-      .toLowerCase();
+    const recipient = selectedUser.trim().toLowerCase();
 
     return safeMessages.filter((message) => {
       if (!message || message.type !== "CHAT_PRIVATE") {
         return false;
       }
 
-      // Support different sender field names from server versions.
       const sender = String(
         message.from ?? message.username ?? message.sender ?? ""
       )
@@ -106,11 +186,39 @@ export default function ChatRoom({ username }) {
       if (!sender || !receiver) return false;
 
       return (
-        (sender === currentUser && receiver === recipient) ||
-        (sender === recipient && receiver === currentUser)
+        (sender === normalizedUsername && receiver === recipient) ||
+        (sender === recipient && receiver === normalizedUsername)
       );
     });
   }, [messages, normalizedUsername, selectedUser]);
+
+  function openConversation(user) {
+    setSelectedUser(user);
+    setText("");
+    setCursorPos(0);
+    setSuggestionsOpen(false);
+    setActiveSuggestion(-1);
+
+    // Clear this user's unread badge immediately.
+    const userKey = user.toLowerCase();
+
+    setUnreadCounts((previous) => {
+      if (!previous[userKey]) return previous;
+
+      const next = { ...previous };
+      delete next[userKey];
+
+      return next;
+    });
+  }
+
+  function openGroupChat() {
+    setSelectedUser(null);
+    setText("");
+    setCursorPos(0);
+    setSuggestionsOpen(true);
+    setActiveSuggestion(-1);
+  }
 
   function selectMention(user) {
     if (!mentionMatch) return;
@@ -322,18 +430,16 @@ export default function ChatRoom({ username }) {
           </div>
         </div>
 
-        <div className="sidebar-section-label">CONVERSATIONS</div>
+        <div className="sidebar-section-label">
+          CONVERSATIONS
+        </div>
 
         <button
           type="button"
-          className={`conversation-item ${!selectedUser ? "active" : ""}`}
-          onClick={() => {
-            setSelectedUser(null);
-            setText("");
-            setCursorPos(0);
-            setSuggestionsOpen(true);
-            setActiveSuggestion(-1);
-          }}
+          className={`conversation-item ${
+            !selectedUser ? "active" : ""
+          }`}
+          onClick={openGroupChat}
         >
           <div className="avatar group-avatar">#</div>
 
@@ -349,37 +455,50 @@ export default function ChatRoom({ username }) {
         </div>
 
         <div className="users-list">
-          {otherUsers.map((user) => (
-            <button
-              type="button"
-              key={user.toLowerCase()}
-              className={`conversation-item ${
-                selectedUser === user ? "active" : ""
-              }`}
-              onClick={() => {
-                setSelectedUser(user);
-                setText("");
-                setCursorPos(0);
-                setSuggestionsOpen(false);
-                setActiveSuggestion(-1);
-              }}
-            >
-              <div className="avatar">
-                {user.charAt(0).toUpperCase()}
-              </div>
+          {otherUsers.map((user) => {
+            const userKey = user.toLowerCase();
+            const unreadCount = unreadCounts[userKey] || 0;
 
-              <div className="conversation-info">
-                <strong>{user}</strong>
-                <span>
-                  <i className="online-dot" />
-                  Online
-                </span>
-              </div>
-            </button>
-          ))}
+            return (
+              <button
+                type="button"
+                key={userKey}
+                className={`conversation-item ${
+                  selectedUser === user ? "active" : ""
+                }`}
+                onClick={() => openConversation(user)}
+              >
+                <div className="avatar">
+                  {user.charAt(0).toUpperCase()}
+                </div>
+
+                <div className="conversation-info">
+                  <div className="conversation-name-row">
+                    <strong>{user}</strong>
+
+                    {unreadCount > 0 && (
+                      <span
+                        className="unread-badge"
+                        aria-label={`${unreadCount} unread messages`}
+                      >
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    )}
+                  </div>
+
+                  <span>
+                    <i className="online-dot" />
+                    Online
+                  </span>
+                </div>
+              </button>
+            );
+          })}
 
           {otherUsers.length === 0 && (
-            <p className="empty-users">No other users online yet.</p>
+            <p className="empty-users">
+              No other users online yet.
+            </p>
           )}
         </div>
 
@@ -413,7 +532,7 @@ export default function ChatRoom({ username }) {
             <p>
               {selectedUser
                 ? "Private conversation"
-                : `${otherUsers.length + (currentUsername ? 1 : 0)} user(s) connected`}
+                : `${(Array.isArray(users) ? users.length : 0)} user(s) connected`}
             </p>
           </div>
 
@@ -466,7 +585,6 @@ export default function ChatRoom({ username }) {
               );
             }
 
-            // Private messages use username in the current server response.
             const sender = String(
               message.type === "CHAT_PRIVATE"
                 ? message.from ??
@@ -479,7 +597,6 @@ export default function ChatRoom({ username }) {
                     ""
             ).trim();
 
-            // Prevent malformed server messages from crashing rendering.
             if (!sender) return null;
 
             const isOwnMessage =
@@ -490,7 +607,10 @@ export default function ChatRoom({ username }) {
                 className={`message-row ${
                   isOwnMessage ? "own-message" : ""
                 }`}
-                key={message.id || `${message.timestamp ?? "message"}-${index}`}
+                key={
+                  message.id ||
+                  `${message.timestamp ?? "message"}-${index}`
+                }
               >
                 {!isOwnMessage && (
                   <div className="avatar message-avatar">
@@ -500,7 +620,9 @@ export default function ChatRoom({ username }) {
 
                 <div className="message-content">
                   {!isOwnMessage && (
-                    <span className="message-sender">{sender}</span>
+                    <span className="message-sender">
+                      {sender}
+                    </span>
                   )}
 
                   <div className="message-bubble">
@@ -509,13 +631,12 @@ export default function ChatRoom({ username }) {
 
                   <time className="message-time">
                     {message.timestamp
-                      ? new Date(message.timestamp).toLocaleTimeString(
-                          [],
-                          {
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }
-                        )
+                      ? new Date(
+                          message.timestamp
+                        ).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
                       : ""}
                   </time>
                 </div>
@@ -548,14 +669,19 @@ export default function ChatRoom({ username }) {
                         index === activeSuggestion ? "selected" : ""
                       }`}
                       key={user.toLowerCase()}
-                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseDown={(event) =>
+                        event.preventDefault()
+                      }
                       onClick={() => selectMention(user)}
                     >
                       <span className="avatar mention-avatar">
                         {user.charAt(0).toUpperCase()}
                       </span>
 
-                      <span className="mention-user-name">{user}</span>
+                      <span className="mention-user-name">
+                        {user}
+                      </span>
+
                       <span className="mention-at">@</span>
                     </button>
                   ))}
