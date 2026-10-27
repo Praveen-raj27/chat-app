@@ -1881,7 +1881,7 @@ body {
 
   .message-form button {
     flex: 0 0 auto;
-    min-width: 70px;
+    min-width: 34px;
     height: 46px;
     padding: 0 12px;
     font-size: 13px;
