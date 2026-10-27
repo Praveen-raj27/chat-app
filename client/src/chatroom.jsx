@@ -22,9 +22,25 @@ export default function ChatRoom({ username }) {
 
   const inputRef = useRef(null);
 
-  const otherUsers = users.filter(
-    (user) => user.toLowerCase() !== username.toLowerCase()
-  );
+  // Normalize usernames safely.
+  const currentUsername = String(username ?? "").trim();
+  const normalizedUsername = currentUsername.toLowerCase();
+
+  // Protect against unexpected or malformed user-list data.
+  const otherUsers = useMemo(() => {
+    const safeUsers = Array.isArray(users) ? users : [];
+
+    return [
+      ...new Set(
+        safeUsers
+          .filter(
+            (user) => typeof user === "string" && user.trim().length > 0
+          )
+          .map((user) => user.trim())
+          .filter((user) => user.toLowerCase() !== normalizedUsername)
+      ),
+    ];
+  }, [users, normalizedUsername]);
 
   // Detect an @mention immediately before the cursor.
   const mentionMatch = useMemo(() => {
@@ -36,12 +52,14 @@ export default function ChatRoom({ username }) {
 
   const mentionQuery = mentionMatch ? mentionMatch[1] : null;
 
-  // Filter suggestions based on the text after @.
+  // Filter mention suggestions safely.
   const suggestions = useMemo(() => {
     if (mentionQuery === null) return [];
 
+    const query = String(mentionQuery).toLowerCase();
+
     return otherUsers.filter((user) =>
-      user.toLowerCase().startsWith(mentionQuery.toLowerCase())
+      user.toLowerCase().startsWith(query)
     );
   }, [mentionQuery, otherUsers]);
 
@@ -50,30 +68,49 @@ export default function ChatRoom({ username }) {
     setActiveSuggestion(-1);
   }, [mentionQuery, selectedUser]);
 
-const conversationMessages = useMemo(() => {
-  const currentUser = String(username || "").toLowerCase();
-  const recipient = String(selectedUser || "").toLowerCase();
+  // Show only messages belonging to the selected conversation.
+  const conversationMessages = useMemo(() => {
+    const safeMessages = Array.isArray(messages) ? messages : [];
 
-  return messages.filter((message) => {
-    if (message.type !== "CHAT_PRIVATE") return false;
+    if (!selectedUser) {
+      return safeMessages.filter(
+        (message) =>
+          message &&
+          (message.type === "CHAT" || message.type === "SYSTEM")
+      );
+    }
 
-    // Support both backend message formats.
-    const sender = String(
-      message.from ?? message.username ?? message.sender ?? ""
-    ).toLowerCase();
+    const currentUser = normalizedUsername;
+    const recipient = String(selectedUser ?? "")
+      .trim()
+      .toLowerCase();
 
-    const receiver = String(
-      message.to ?? message.recipient ?? ""
-    ).toLowerCase();
+    return safeMessages.filter((message) => {
+      if (!message || message.type !== "CHAT_PRIVATE") {
+        return false;
+      }
 
-    if (!sender || !receiver) return false;
+      // Support different sender field names from server versions.
+      const sender = String(
+        message.from ?? message.username ?? message.sender ?? ""
+      )
+        .trim()
+        .toLowerCase();
 
-    return (
-      (sender === currentUser && receiver === recipient) ||
-      (sender === recipient && receiver === currentUser)
-    );
-  });
-}, [messages, username, selectedUser]);
+      const receiver = String(
+        message.to ?? message.recipient ?? ""
+      )
+        .trim()
+        .toLowerCase();
+
+      if (!sender || !receiver) return false;
+
+      return (
+        (sender === currentUser && receiver === recipient) ||
+        (sender === recipient && receiver === currentUser)
+      );
+    });
+  }, [messages, normalizedUsername, selectedUser]);
 
   function selectMention(user) {
     if (!mentionMatch) return;
@@ -81,7 +118,6 @@ const conversationMessages = useMemo(() => {
     const beforeCursor = text.slice(0, cursorPos);
     const afterCursor = text.slice(cursorPos);
 
-    // Replace the current @query with the selected username.
     const replacement = beforeCursor.replace(
       /(^|\s)@([^\s@]*)$/,
       (_, whitespace) => `${whitespace}@${user} `
@@ -141,7 +177,6 @@ const conversationMessages = useMemo(() => {
       }
 
       if (event.key === "Enter" && !event.shiftKey) {
-        // Select only if the user has highlighted an option.
         if (activeSuggestion >= 0) {
           event.preventDefault();
           selectMention(suggestions[activeSuggestion]);
@@ -181,22 +216,25 @@ const conversationMessages = useMemo(() => {
     }
   }
 
-  // Highlight usernames identified by the server.
+  // Highlight usernames mentioned in group messages.
   function renderMessageText(message) {
-    const mentionedUsers = Array.isArray(message.mentionedUsers)
-      ? message.mentionedUsers
+    const messageText =
+      typeof message?.text === "string" ? message.text : "";
+
+    const mentionedUsers = Array.isArray(message?.mentionedUsers)
+      ? message.mentionedUsers.filter(
+          (name) => typeof name === "string" && name.length > 0
+        )
       : [];
 
-    if (message.type !== "CHAT" || mentionedUsers.length === 0) {
-      return message.text;
+    if (message?.type !== "CHAT" || mentionedUsers.length === 0) {
+      return messageText;
     }
 
     const escapedNames = mentionedUsers
       .slice()
       .sort((a, b) => b.length - a.length)
-      .map((name) =>
-        name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      );
+      .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 
     const pattern = new RegExp(
       `(^|[^\\w])(@(?:${escapedNames.join("|")}))(?=$|[^\\w])`,
@@ -207,9 +245,9 @@ const conversationMessages = useMemo(() => {
     let lastIndex = 0;
     let match;
 
-    while ((match = pattern.exec(message.text)) !== null) {
+    while ((match = pattern.exec(messageText)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(message.text.slice(lastIndex, match.index));
+        parts.push(messageText.slice(lastIndex, match.index));
       }
 
       if (match[1]) parts.push(match[1]);
@@ -226,18 +264,18 @@ const conversationMessages = useMemo(() => {
       lastIndex = pattern.lastIndex;
     }
 
-    if (lastIndex < message.text.length) {
-      parts.push(message.text.slice(lastIndex));
+    if (lastIndex < messageText.length) {
+      parts.push(messageText.slice(lastIndex));
     }
 
-    return parts.length ? parts : message.text;
+    return parts.length ? parts : messageText;
   }
 
   return (
     <main className="chat-screen">
       <aside className="users-sidebar">
         <div className="sidebar-heading">
-         <div className="">
+          <div>
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="90 90 475 435"
@@ -255,16 +293,17 @@ const conversationMessages = useMemo(() => {
                   x2="550"
                   y2="510"
                 >
-                  <stop offset="0" stop-color="#8b83f5" />
-                  <stop offset="1" stop-color="#5b54e6" />
+                  <stop offset="0" stopColor="#8b83f5" />
+                  <stop offset="1" stopColor="#5b54e6" />
                 </linearGradient>
               </defs>
+
               <g
                 fill="none"
                 stroke="url(#hb-grad)"
-                stroke-width="31"
-                stroke-linejoin="miter"
-                stroke-linecap="butt"
+                strokeWidth="31"
+                strokeLinejoin="miter"
+                strokeLinecap="butt"
               >
                 <path d="M113 113 H430 A111 111 0 0 1 430 335 A105 82.5 0 0 1 430 500 H303 V398" />
                 <path d="M303 113 V255 H228" />
@@ -274,23 +313,20 @@ const conversationMessages = useMemo(() => {
               </g>
             </svg>
           </div>
+
           <div>
             <h2>Hey Buddies</h2>
             <span className="sidebar-subtitle">
-              Signed in as {username}
+              Signed in as {currentUsername}
             </span>
           </div>
         </div>
 
-        <div className="sidebar-section-label">
-          CONVERSATIONS
-        </div>
+        <div className="sidebar-section-label">CONVERSATIONS</div>
 
         <button
           type="button"
-          className={`conversation-item ${
-            !selectedUser ? "active" : ""
-          }`}
+          className={`conversation-item ${!selectedUser ? "active" : ""}`}
           onClick={() => {
             setSelectedUser(null);
             setText("");
@@ -316,7 +352,7 @@ const conversationMessages = useMemo(() => {
           {otherUsers.map((user) => (
             <button
               type="button"
-              key={user}
+              key={user.toLowerCase()}
               className={`conversation-item ${
                 selectedUser === user ? "active" : ""
               }`}
@@ -343,9 +379,7 @@ const conversationMessages = useMemo(() => {
           ))}
 
           {otherUsers.length === 0 && (
-            <p className="empty-users">
-              No other users online yet.
-            </p>
+            <p className="empty-users">No other users online yet.</p>
           )}
         </div>
 
@@ -379,7 +413,7 @@ const conversationMessages = useMemo(() => {
             <p>
               {selectedUser
                 ? "Private conversation"
-                : `${users.length} user(s) connected`}
+                : `${otherUsers.length + (currentUsername ? 1 : 0)} user(s) connected`}
             </p>
           </div>
 
@@ -425,27 +459,38 @@ const conversationMessages = useMemo(() => {
               return (
                 <div
                   className="system-message"
-                  key={`${message.timestamp}-${message.text}-${index}`}
+                  key={`${message.timestamp ?? "system"}-${index}`}
                 >
                   {message.text}
                 </div>
               );
             }
 
-            const sender =
+            // Private messages use username in the current server response.
+            const sender = String(
               message.type === "CHAT_PRIVATE"
-                ? message.from
-                : message.username;
+                ? message.from ??
+                    message.username ??
+                    message.sender ??
+                    ""
+                : message.username ??
+                    message.from ??
+                    message.sender ??
+                    ""
+            ).trim();
+
+            // Prevent malformed server messages from crashing rendering.
+            if (!sender) return null;
 
             const isOwnMessage =
-              sender.toLowerCase() === username.toLowerCase();
+              sender.toLowerCase() === normalizedUsername;
 
             return (
               <div
                 className={`message-row ${
                   isOwnMessage ? "own-message" : ""
                 }`}
-                key={message.id || `${message.timestamp}-${index}`}
+                key={message.id || `${message.timestamp ?? "message"}-${index}`}
               >
                 {!isOwnMessage && (
                   <div className="avatar message-avatar">
@@ -455,9 +500,7 @@ const conversationMessages = useMemo(() => {
 
                 <div className="message-content">
                   {!isOwnMessage && (
-                    <span className="message-sender">
-                      {sender}
-                    </span>
+                    <span className="message-sender">{sender}</span>
                   )}
 
                   <div className="message-bubble">
@@ -465,13 +508,15 @@ const conversationMessages = useMemo(() => {
                   </div>
 
                   <time className="message-time">
-                    {new Date(message.timestamp).toLocaleTimeString(
-                      [],
-                      {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      }
-                    )}
+                    {message.timestamp
+                      ? new Date(message.timestamp).toLocaleTimeString(
+                          [],
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          }
+                        )
+                      : ""}
                   </time>
                 </div>
               </div>
@@ -502,7 +547,7 @@ const conversationMessages = useMemo(() => {
                       className={`mention-option ${
                         index === activeSuggestion ? "selected" : ""
                       }`}
-                      key={user}
+                      key={user.toLowerCase()}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectMention(user)}
                     >
@@ -510,10 +555,7 @@ const conversationMessages = useMemo(() => {
                         {user.charAt(0).toUpperCase()}
                       </span>
 
-                      <span className="mention-user-name">
-                        {user}
-                      </span>
-
+                      <span className="mention-user-name">{user}</span>
                       <span className="mention-at">@</span>
                     </button>
                   ))}
