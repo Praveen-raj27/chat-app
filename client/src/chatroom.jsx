@@ -20,7 +20,7 @@ export default function ChatRoom({ username }) {
   const [suggestionsOpen, setSuggestionsOpen] = useState(true);
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
-  // Unread private-message counts, keyed by normalized username.
+  // Unread counts: usernames for private chats and "group" for Group Chat.
   const [unreadCounts, setUnreadCounts] = useState({});
 
   const inputRef = useRef(null);
@@ -50,26 +50,31 @@ export default function ChatRoom({ username }) {
     ];
   }, [users, normalizedUsername]);
 
-  // Count new private messages received while their conversation
-  // is not currently open.
+  // Count unread group and private messages.
   useEffect(() => {
     const safeMessages = Array.isArray(messages) ? messages : [];
     const processed = processedPrivateMessagesRef.current;
 
     safeMessages.forEach((message) => {
-      if (!message || message.type !== "CHAT_PRIVATE") return;
+      if (!message) return;
+
+      const isGroupMessage = message.type === "CHAT";
+      const isPrivateMessage = message.type === "CHAT_PRIVATE";
+
+      if (!isGroupMessage && !isPrivateMessage) return;
 
       const sender = String(
         message.from ?? message.username ?? message.sender ?? ""
       ).trim();
 
+      if (!sender) return;
+
+      const senderKey = sender.toLowerCase();
+
       const recipient = String(
         message.to ?? message.recipient ?? ""
       ).trim();
 
-      if (!sender || !recipient) return;
-
-      const senderKey = sender.toLowerCase();
       const recipientKey = recipient.toLowerCase();
 
       // Use the server message ID when available.
@@ -77,6 +82,7 @@ export default function ChatRoom({ username }) {
       const messageKey = String(
         message.id ??
           [
+            message.type,
             message.timestamp ?? "",
             senderKey,
             recipientKey,
@@ -86,16 +92,29 @@ export default function ChatRoom({ username }) {
 
       if (processed.has(messageKey)) return;
 
-      // Mark it as processed before updating state.
+      // Mark the message as processed before counting it.
       processed.add(messageKey);
-
-      // Count only messages addressed to the current user.
-      if (recipientKey !== normalizedUsername) return;
 
       // Never count messages sent by the current user.
       if (senderKey === normalizedUsername) return;
 
-      // Messages in the currently open conversation are considered read.
+      // GROUP CHAT
+      if (isGroupMessage) {
+        // Messages arriving while Group Chat is open are already read.
+        if (!selectedUser) return;
+
+        setUnreadCounts((previous) => ({
+          ...previous,
+          group: (previous.group || 0) + 1,
+        }));
+
+        return;
+      }
+
+      // PRIVATE CHAT
+      if (!recipient || recipientKey !== normalizedUsername) return;
+
+      // Messages in the currently open private conversation are read.
       if (
         selectedUser &&
         selectedUser.trim().toLowerCase() === senderKey
@@ -110,7 +129,7 @@ export default function ChatRoom({ username }) {
     });
   }, [messages, normalizedUsername, selectedUser]);
 
-  // Clear the unread badge when opening that user's conversation.
+  // Clear the private-message badge when opening that conversation.
   useEffect(() => {
     if (!selectedUser) return;
 
@@ -218,6 +237,16 @@ export default function ChatRoom({ username }) {
     setCursorPos(0);
     setSuggestionsOpen(true);
     setActiveSuggestion(-1);
+
+    // Clear the Group Chat unread badge immediately.
+    setUnreadCounts((previous) => {
+      if (!previous.group) return previous;
+
+      const next = { ...previous };
+      delete next.group;
+
+      return next;
+    });
   }
 
   function selectMention(user) {
@@ -444,14 +473,27 @@ export default function ChatRoom({ username }) {
           <div className="avatar group-avatar">#</div>
 
           <div className="conversation-info">
-            <strong>Group Chat</strong>
+            <div className="conversation-name-row">
+              <strong>Group Chat</strong>
+
+              {(unreadCounts.group || 0) > 0 && (
+                <span
+                  className="unread-badge"
+                  aria-label={`${unreadCounts.group} unread group messages`}
+                >
+                  {unreadCounts.group > 99
+                    ? "99+"
+                    : unreadCounts.group}
+                </span>
+              )}
+            </div>
+
             <span>Everyone online</span>
           </div>
         </button>
 
         <div className="sidebar-section-label">
           DIRECT MESSAGES
-          <span>{otherUsers.length}</span>
         </div>
 
         <div className="users-list">
