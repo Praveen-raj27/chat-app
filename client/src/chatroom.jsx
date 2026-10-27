@@ -1,7 +1,31 @@
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "./useChat";
 import "./App.css";
+
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+const ACCEPTED_FILES = [
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".webp",
+  ".pdf",
+  ".txt",
+  ".doc",
+  ".docx",
+].join(",");
 
 export default function ChatRoom({ username }) {
   const {
@@ -11,6 +35,7 @@ export default function ChatRoom({ username }) {
     error,
     sendMessage,
     sendPrivateMessage,
+    sendAttachment,
     clearError,
   } = useChat(username);
 
@@ -20,37 +45,33 @@ export default function ChatRoom({ username }) {
   const [suggestionsOpen, setSuggestionsOpen] = useState(true);
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
-  // Unread counts: usernames for private chats and "group" for Group Chat.
   const [unreadCounts, setUnreadCounts] = useState({});
 
-  const inputRef = useRef(null);
+  // Selected attachment and file input.
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState("");
+  const fileInputRef = useRef(null);
 
-  // Prevent the same incoming message from being counted twice.
+  const inputRef = useRef(null);
   const processedPrivateMessagesRef = useRef(new Set());
 
   const currentUsername = String(username ?? "").trim();
   const normalizedUsername = currentUsername.toLowerCase();
 
-  // Normalize the online users list safely.
   const otherUsers = useMemo(() => {
     const safeUsers = Array.isArray(users) ? users : [];
 
     return [
       ...new Set(
         safeUsers
-          .filter(
-            (user) =>
-              typeof user === "string" && user.trim().length > 0
-          )
+          .filter((user) => typeof user === "string" && user.trim().length > 0)
           .map((user) => user.trim())
-          .filter(
-            (user) => user.toLowerCase() !== normalizedUsername
-          )
+          .filter((user) => user.toLowerCase() !== normalizedUsername),
       ),
     ];
   }, [users, normalizedUsername]);
 
-  // Count unread group and private messages.
+  // Count unread group and private messages, including attachments.
   useEffect(() => {
     const safeMessages = Array.isArray(messages) ? messages : [];
     const processed = processedPrivateMessagesRef.current;
@@ -58,27 +79,27 @@ export default function ChatRoom({ username }) {
     safeMessages.forEach((message) => {
       if (!message) return;
 
-      const isGroupMessage = message.type === "CHAT";
-      const isPrivateMessage = message.type === "CHAT_PRIVATE";
+      const isGroupMessage =
+        message.type === "CHAT" || message.type === "CHAT_ATTACHMENT";
+
+      const isPrivateMessage =
+        message.type === "CHAT_PRIVATE" ||
+        message.type === "CHAT_PRIVATE_ATTACHMENT";
 
       if (!isGroupMessage && !isPrivateMessage) return;
 
       const sender = String(
-        message.from ?? message.username ?? message.sender ?? ""
+        message.from ?? message.username ?? message.sender ?? "",
       ).trim();
 
       if (!sender) return;
 
       const senderKey = sender.toLowerCase();
 
-      const recipient = String(
-        message.to ?? message.recipient ?? ""
-      ).trim();
+      const recipient = String(message.to ?? message.recipient ?? "").trim();
 
       const recipientKey = recipient.toLowerCase();
 
-      // Use the server message ID when available.
-      // Fall back to a composite key for older server responses.
       const messageKey = String(
         message.id ??
           [
@@ -87,20 +108,17 @@ export default function ChatRoom({ username }) {
             senderKey,
             recipientKey,
             message.text ?? "",
-          ].join("|")
+            message.attachment?.name ?? "",
+          ].join("|"),
       );
 
       if (processed.has(messageKey)) return;
 
-      // Mark the message as processed before counting it.
       processed.add(messageKey);
 
-      // Never count messages sent by the current user.
       if (senderKey === normalizedUsername) return;
 
-      // GROUP CHAT
       if (isGroupMessage) {
-        // Messages arriving while Group Chat is open are already read.
         if (!selectedUser) return;
 
         setUnreadCounts((previous) => ({
@@ -111,14 +129,9 @@ export default function ChatRoom({ username }) {
         return;
       }
 
-      // PRIVATE CHAT
       if (!recipient || recipientKey !== normalizedUsername) return;
 
-      // Messages in the currently open private conversation are read.
-      if (
-        selectedUser &&
-        selectedUser.trim().toLowerCase() === senderKey
-      ) {
+      if (selectedUser && selectedUser.trim().toLowerCase() === senderKey) {
         return;
       }
 
@@ -129,7 +142,6 @@ export default function ChatRoom({ username }) {
     });
   }, [messages, normalizedUsername, selectedUser]);
 
-  // Clear the private-message badge when opening that conversation.
   useEffect(() => {
     if (!selectedUser) return;
 
@@ -155,23 +167,19 @@ export default function ChatRoom({ username }) {
 
   const mentionQuery = mentionMatch ? mentionMatch[1] : null;
 
-  // Filter mention suggestions.
   const suggestions = useMemo(() => {
     if (mentionQuery === null) return [];
 
     const query = String(mentionQuery).toLowerCase();
 
-    return otherUsers.filter((user) =>
-      user.toLowerCase().startsWith(query)
-    );
+    return otherUsers.filter((user) => user.toLowerCase().startsWith(query));
   }, [mentionQuery, otherUsers]);
 
-  // Reset keyboard selection whenever the query changes.
   useEffect(() => {
     setActiveSuggestion(-1);
   }, [mentionQuery, selectedUser]);
 
-  // Show messages belonging to the selected conversation.
+  // Filter messages for the active conversation.
   const conversationMessages = useMemo(() => {
     const safeMessages = Array.isArray(messages) ? messages : [];
 
@@ -179,26 +187,29 @@ export default function ChatRoom({ username }) {
       return safeMessages.filter(
         (message) =>
           message &&
-          (message.type === "CHAT" || message.type === "SYSTEM")
+          (message.type === "CHAT" ||
+            message.type === "CHAT_ATTACHMENT" ||
+            message.type === "SYSTEM"),
       );
     }
 
     const recipient = selectedUser.trim().toLowerCase();
 
     return safeMessages.filter((message) => {
-      if (!message || message.type !== "CHAT_PRIVATE") {
+      if (
+        !message ||
+        !["CHAT_PRIVATE", "CHAT_PRIVATE_ATTACHMENT"].includes(message.type)
+      ) {
         return false;
       }
 
       const sender = String(
-        message.from ?? message.username ?? message.sender ?? ""
+        message.from ?? message.username ?? message.sender ?? "",
       )
         .trim()
         .toLowerCase();
 
-      const receiver = String(
-        message.to ?? message.recipient ?? ""
-      )
+      const receiver = String(message.to ?? message.recipient ?? "")
         .trim()
         .toLowerCase();
 
@@ -211,14 +222,23 @@ export default function ChatRoom({ username }) {
     });
   }, [messages, normalizedUsername, selectedUser]);
 
+  function removeSelectedFile() {
+    setSelectedFile(null);
+    setFilePreview("");
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  }
+
   function openConversation(user) {
     setSelectedUser(user);
     setText("");
     setCursorPos(0);
     setSuggestionsOpen(false);
     setActiveSuggestion(-1);
+    removeSelectedFile();
 
-    // Clear this user's unread badge immediately.
     const userKey = user.toLowerCase();
 
     setUnreadCounts((previous) => {
@@ -237,8 +257,8 @@ export default function ChatRoom({ username }) {
     setCursorPos(0);
     setSuggestionsOpen(true);
     setActiveSuggestion(-1);
+    removeSelectedFile();
 
-    // Clear the Group Chat unread badge immediately.
     setUnreadCounts((previous) => {
       if (!previous.group) return previous;
 
@@ -249,6 +269,60 @@ export default function ChatRoom({ username }) {
     });
   }
 
+  function handleFileSelect(event) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!ALLOWED_TYPES.has(file.type)) {
+      clearError?.();
+      alert(
+        "Unsupported file type. Please select an image, PDF, TXT, DOC, or DOCX file.",
+      );
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      clearError?.();
+      alert("The maximum attachment size is 2 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size === 0) {
+      alert("The selected file is empty.");
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        alert("Unable to read this file. Please try again.");
+        return;
+      }
+
+      setSelectedFile({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        data: reader.result,
+      });
+
+      setFilePreview(file.type.startsWith("image/") ? reader.result : "");
+
+      clearError?.();
+    };
+
+    reader.onerror = () => {
+      alert("Unable to read this file. Please try again.");
+    };
+
+    reader.readAsDataURL(file);
+  }
+
   function selectMention(user) {
     if (!mentionMatch) return;
 
@@ -257,7 +331,7 @@ export default function ChatRoom({ username }) {
 
     const replacement = beforeCursor.replace(
       /(^|\s)@([^\s@]*)$/,
-      (_, whitespace) => `${whitespace}@${user} `
+      (_, whitespace) => `${whitespace}@${user} `,
     );
 
     const nextText = replacement + afterCursor;
@@ -278,9 +352,9 @@ export default function ChatRoom({ username }) {
 
   function handleInputChange(event) {
     setText(event.target.value);
-    setCursorPos(
-      event.target.selectionStart ?? event.target.value.length
-    );
+
+    setCursorPos(event.target.selectionStart ?? event.target.value.length);
+
     setSuggestionsOpen(true);
     setActiveSuggestion(-1);
 
@@ -288,9 +362,7 @@ export default function ChatRoom({ username }) {
   }
 
   function updateCursor(event) {
-    setCursorPos(
-      event.target.selectionStart ?? event.target.value.length
-    );
+    setCursorPos(event.target.selectionStart ?? event.target.value.length);
   }
 
   function handleKeyDown(event) {
@@ -299,7 +371,7 @@ export default function ChatRoom({ username }) {
         event.preventDefault();
 
         setActiveSuggestion((index) =>
-          index < suggestions.length - 1 ? index + 1 : 0
+          index < suggestions.length - 1 ? index + 1 : 0,
         );
         return;
       }
@@ -308,7 +380,7 @@ export default function ChatRoom({ username }) {
         event.preventDefault();
 
         setActiveSuggestion((index) =>
-          index <= 0 ? suggestions.length - 1 : index - 1
+          index <= 0 ? suggestions.length - 1 : index - 1,
         );
         return;
       }
@@ -318,6 +390,7 @@ export default function ChatRoom({ username }) {
           event.preventDefault();
           selectMention(suggestions[activeSuggestion]);
         }
+
         return;
       }
 
@@ -339,28 +412,35 @@ export default function ChatRoom({ username }) {
     event.preventDefault();
 
     const trimmedText = text.trim();
-    if (!trimmedText) return;
 
-    const sent = selectedUser
-      ? sendPrivateMessage(selectedUser, trimmedText)
-      : sendMessage(trimmedText);
+    // Allow an attachment to be sent without a caption.
+    if (!trimmedText && !selectedFile) return;
+
+    let sent = false;
+
+    if (selectedFile) {
+      sent = sendAttachment(selectedUser, selectedFile, trimmedText);
+    } else {
+      sent = selectedUser
+        ? sendPrivateMessage(selectedUser, trimmedText)
+        : sendMessage(trimmedText);
+    }
 
     if (sent) {
       setText("");
       setCursorPos(0);
       setSuggestionsOpen(true);
       setActiveSuggestion(-1);
+      removeSelectedFile();
     }
   }
 
-  // Highlight usernames mentioned in group messages.
   function renderMessageText(message) {
-    const messageText =
-      typeof message?.text === "string" ? message.text : "";
+    const messageText = typeof message?.text === "string" ? message.text : "";
 
     const mentionedUsers = Array.isArray(message?.mentionedUsers)
       ? message.mentionedUsers.filter(
-          (name) => typeof name === "string" && name.length > 0
+          (name) => typeof name === "string" && name.length > 0,
         )
       : [];
 
@@ -375,7 +455,7 @@ export default function ChatRoom({ username }) {
 
     const pattern = new RegExp(
       `(^|[^\\w])(@(?:${escapedNames.join("|")}))(?=$|[^\\w])`,
-      "gi"
+      "gi",
     );
 
     const parts = [];
@@ -390,12 +470,9 @@ export default function ChatRoom({ username }) {
       if (match[1]) parts.push(match[1]);
 
       parts.push(
-        <span
-          className="message-mention"
-          key={`mention-${match.index}`}
-        >
+        <span className="message-mention" key={`mention-${match.index}`}>
           {match[2]}
-        </span>
+        </span>,
       );
 
       lastIndex = pattern.lastIndex;
@@ -406,6 +483,67 @@ export default function ChatRoom({ username }) {
     }
 
     return parts.length ? parts : messageText;
+  }
+
+  function renderAttachment(attachment) {
+    if (!attachment?.data || !attachment?.name) return null;
+
+    const isImage = attachment.type?.startsWith("image/");
+
+    if (isImage) {
+      return (
+        <a
+          href={attachment.data}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open image ${attachment.name} in a new tab`}
+          style={{
+            display: "block",
+            marginBottom: attachment.name ? "8px" : 0,
+          }}
+        >
+          <img
+            src={attachment.data}
+            alt={attachment.name}
+            loading="lazy"
+            style={{
+              display: "block",
+              maxWidth: "min(100%, 320px)",
+              maxHeight: "280px",
+              objectFit: "contain",
+              borderRadius: "8px",
+            }}
+          />
+        </a>
+      );
+    }
+
+    return (
+      <a
+        href={attachment.data}
+        download={attachment.name}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 10px",
+          marginBottom: "8px",
+          border: "1px solid rgba(128, 128, 128, 0.35)",
+          borderRadius: "8px",
+          textDecoration: "none",
+          overflowWrap: "anywhere",
+        }}
+      >
+        <span aria-hidden="true">📎</span>
+        <span>{attachment.name}</span>
+        <span aria-hidden="true">↓</span>
+      </a>
+    );
+  }
+
+  function formatFileSize(bytes) {
+    if (bytes < 1024) return `${bytes} B`;
+    return `${(bytes / 1024).toFixed(1)} KB`;
   }
 
   return (
@@ -459,15 +597,11 @@ export default function ChatRoom({ username }) {
           </div>
         </div>
 
-        <div className="sidebar-section-label">
-          CONVERSATIONS
-        </div>
+        <div className="sidebar-section-label">CONVERSATIONS</div>
 
         <button
           type="button"
-          className={`conversation-item ${
-            !selectedUser ? "active" : ""
-          }`}
+          className={`conversation-item ${!selectedUser ? "active" : ""}`}
           onClick={openGroupChat}
         >
           <div className="avatar group-avatar">#</div>
@@ -481,9 +615,7 @@ export default function ChatRoom({ username }) {
                   className="unread-badge"
                   aria-label={`${unreadCounts.group} unread group messages`}
                 >
-                  {unreadCounts.group > 99
-                    ? "99+"
-                    : unreadCounts.group}
+                  {unreadCounts.group > 99 ? "99+" : unreadCounts.group}
                 </span>
               )}
             </div>
@@ -492,9 +624,7 @@ export default function ChatRoom({ username }) {
           </div>
         </button>
 
-        <div className="sidebar-section-label">
-          DIRECT MESSAGES
-        </div>
+        <div className="sidebar-section-label">DIRECT MESSAGES</div>
 
         <div className="users-list">
           {otherUsers.map((user) => {
@@ -510,9 +640,7 @@ export default function ChatRoom({ username }) {
                 }`}
                 onClick={() => openConversation(user)}
               >
-                <div className="avatar">
-                  {user.charAt(0).toUpperCase()}
-                </div>
+                <div className="avatar">{user.charAt(0).toUpperCase()}</div>
 
                 <div className="conversation-info">
                   <div className="conversation-name-row">
@@ -538,9 +666,7 @@ export default function ChatRoom({ username }) {
           })}
 
           {otherUsers.length === 0 && (
-            <p className="empty-users">
-              No other users online yet.
-            </p>
+            <p className="empty-users">No other users online yet.</p>
           )}
         </div>
 
@@ -554,19 +680,17 @@ export default function ChatRoom({ username }) {
           {status === "connected"
             ? "Connected"
             : status === "connecting"
-            ? "Connecting..."
-            : status === "error"
-            ? "Connection error"
-            : "Disconnected"}
+              ? "Connecting..."
+              : status === "error"
+                ? "Connection error"
+                : "Disconnected"}
         </div>
       </aside>
 
       <section className="messages-section">
         <header className="conversation-header">
           <div className="avatar header-avatar">
-            {selectedUser
-              ? selectedUser.charAt(0).toUpperCase()
-              : "#"}
+            {selectedUser ? selectedUser.charAt(0).toUpperCase() : "#"}
           </div>
 
           <div>
@@ -574,7 +698,7 @@ export default function ChatRoom({ username }) {
             <p>
               {selectedUser
                 ? "Private conversation"
-                : `${(Array.isArray(users) ? users.length : 0)} user(s) connected`}
+                : `${Array.isArray(users) ? users.length : 0} user(s) connected`}
             </p>
           </div>
 
@@ -598,9 +722,7 @@ export default function ChatRoom({ username }) {
 
         <div className="messages">
           <div className="conversation-intro">
-            <div className="intro-icon">
-              {selectedUser ? "✉" : "#"}
-            </div>
+            <div className="intro-icon">{selectedUser ? "✉" : "#"}</div>
 
             <h3>
               {selectedUser
@@ -627,32 +749,26 @@ export default function ChatRoom({ username }) {
               );
             }
 
+            const isPrivate =
+              message.type === "CHAT_PRIVATE" ||
+              message.type === "CHAT_PRIVATE_ATTACHMENT";
+
             const sender = String(
-              message.type === "CHAT_PRIVATE"
-                ? message.from ??
-                    message.username ??
-                    message.sender ??
-                    ""
-                : message.username ??
-                    message.from ??
-                    message.sender ??
-                    ""
+              isPrivate
+                ? (message.from ?? message.username ?? message.sender ?? "")
+                : (message.username ?? message.from ?? message.sender ?? ""),
             ).trim();
 
             if (!sender) return null;
 
-            const isOwnMessage =
-              sender.toLowerCase() === normalizedUsername;
+            const isOwnMessage = sender.toLowerCase() === normalizedUsername;
+
+            const attachment = message.attachment;
 
             return (
               <div
-                className={`message-row ${
-                  isOwnMessage ? "own-message" : ""
-                }`}
-                key={
-                  message.id ||
-                  `${message.timestamp ?? "message"}-${index}`
-                }
+                className={`message-row ${isOwnMessage ? "own-message" : ""}`}
+                key={message.id || `${message.timestamp ?? "message"}-${index}`}
               >
                 {!isOwnMessage && (
                   <div className="avatar message-avatar">
@@ -662,20 +778,18 @@ export default function ChatRoom({ username }) {
 
                 <div className="message-content">
                   {!isOwnMessage && (
-                    <span className="message-sender">
-                      {sender}
-                    </span>
+                    <span className="message-sender">{sender}</span>
                   )}
 
                   <div className="message-bubble">
+                    {attachment && renderAttachment(attachment)}
+
                     {renderMessageText(message)}
                   </div>
 
                   <time className="message-time">
                     {message.timestamp
-                      ? new Date(
-                          message.timestamp
-                        ).toLocaleTimeString([], {
+                      ? new Date(message.timestamp).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
                         })
@@ -698,9 +812,7 @@ export default function ChatRoom({ username }) {
                   role="listbox"
                   aria-label="Mention suggestions"
                 >
-                  <div className="mention-heading">
-                    MENTION SOMEONE
-                  </div>
+                  <div className="mention-heading">MENTION SOMEONE</div>
 
                   {suggestions.map((user, index) => (
                     <button
@@ -711,24 +823,88 @@ export default function ChatRoom({ username }) {
                         index === activeSuggestion ? "selected" : ""
                       }`}
                       key={user.toLowerCase()}
-                      onMouseDown={(event) =>
-                        event.preventDefault()
-                      }
+                      onMouseDown={(event) => event.preventDefault()}
                       onClick={() => selectMention(user)}
                     >
                       <span className="avatar mention-avatar">
                         {user.charAt(0).toUpperCase()}
                       </span>
 
-                      <span className="mention-user-name">
-                        {user}
-                      </span>
+                      <span className="mention-user-name">{user}</span>
 
                       <span className="mention-at">@</span>
                     </button>
                   ))}
                 </div>
               )}
+
+            {/* Hidden input: uses the existing composer layout. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={ACCEPTED_FILES}
+              onChange={handleFileSelect}
+              style={{ display: "none" }}
+              aria-label="Choose attachment"
+            />
+
+            {/* Compact file preview shown only when a file is selected. */}
+            {selectedFile && (
+              <div className="attachment-preview">
+                <div className="attachment-preview-icon">
+                  {filePreview ? (
+                    <img
+                      src={filePreview}
+                      alt={selectedFile.name}
+                      className="attachment-thumbnail"
+                    />
+                  ) : (
+                    <span className="attachment-file-icon">
+                      {selectedFile.type === "application/pdf"
+                        ? "PDF"
+                        : selectedFile.type.includes("word") ||
+                            selectedFile.type === "application/msword"
+                          ? "DOC"
+                          : "TXT"}
+                    </span>
+                  )}
+                </div>
+
+                <div className="attachment-preview-details">
+                  <span
+                    className="attachment-preview-name"
+                    title={selectedFile.name}
+                  >
+                    {selectedFile.name}
+                  </span>
+
+                  <span className="attachment-preview-size">
+                    {formatFileSize(selectedFile.size)} · Ready to send
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  className="attachment-remove-btn"
+                  onClick={removeSelectedFile}
+                  aria-label="Remove attachment"
+                  title="Remove attachment"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="18"
+                    height="18"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
+                    <path d="M18 6 6 18" />
+                    <path d="m6 6 12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
 
             <input
               ref={inputRef}
@@ -750,9 +926,24 @@ export default function ChatRoom({ username }) {
             />
           </div>
 
+          {/* Attachment button placed beside Send, without changing the layout structure. */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={status !== "connected"}
+            aria-label="Attach a file"
+            title="Attach a file (max 2 MB)"
+            style={{
+              flexShrink: 0,
+              cursor: status === "connected" ? "pointer" : "not-allowed",
+            }}
+          >
+            Attach 📎
+          </button>
+
           <button
             type="submit"
-            disabled={status !== "connected" || !text.trim()}
+            disabled={status !== "connected" || (!text.trim() && !selectedFile)}
           >
             Send <span>➤</span>
           </button>

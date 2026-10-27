@@ -2033,3 +2033,171 @@ body {
   font-weight: 700;
   line-height: 1;
 }
+
+/* Selected attachment preview */
+.attachment-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+
+  background: #f8f9fc;
+  border: 1px solid #e5e7ef;
+  border-radius: 14px;
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.attachment-preview:hover {
+  background: #f3f4fb;
+  border-color: #d7d9eb;
+  box-shadow: 0 3px 12px rgba(37, 40, 80, 0.05);
+}
+
+/* Thumbnail or document icon container */
+.attachment-preview-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  overflow: hidden;
+
+  background: #ffffff;
+  border: 1px solid #e8eaf2;
+  border-radius: 10px;
+}
+
+/* Image thumbnail */
+.attachment-thumbnail {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Document type icon */
+.attachment-file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 36px;
+
+  color: #6258dc;
+  background: #efedff;
+  border-radius: 7px;
+
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+}
+
+/* Filename and file information */
+.attachment-preview-details {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+
+  min-width: 0;
+  overflow: hidden;
+}
+
+.attachment-preview-name {
+  display: block;
+  overflow: hidden;
+
+  color: #252a3a;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-size {
+  display: block;
+  color: #858a9b;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* Compact remove button */
+.attachment-remove-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 34px !important;
+
+  width: 34px !important;
+  min-width: 34px !important;
+  height: 34px !important;
+  padding: 0 !important;
+
+  color: #858a9b !important;
+  background: #ffffff !important;
+  border: 1px solid #e7e8ef !important;
+  border-radius: 9px !important;
+
+  cursor: pointer !important;
+  transition:
+    color 0.2s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease !important;
+}
+
+.attachment-remove-btn:hover {
+  color: #dc3545 !important;
+  background: #fff0f1 !important;
+  border-color: #ffd1d5 !important;
+  transform: scale(1.04) !important;
+}
+
+.attachment-remove-btn:focus-visible {
+  outline: 2px solid #7669e8 !important;
+  outline-offset: 2px !important;
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .attachment-preview {
+    gap: 9px;
+    padding: 8px;
+    border-radius: 11px;
+  }
+
+  .attachment-preview-icon {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .attachment-preview-name {
+    font-size: 12px;
+  }
+
+  .attachment-preview-size {
+    font-size: 10px;
+  }
+
+  .attachment-remove-btn {
+    flex-basis: 30px;
+    width: 30px;
+    height: 30px;
+  }
+}

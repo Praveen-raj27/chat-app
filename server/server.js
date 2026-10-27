@@ -1,35 +1,50 @@
-
+// server/server.js
 const WebSocket = require("ws");
-const crypto = require("crypto");
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+const MAX_PAYLOAD_BYTES = 3 * 1024 * 1024;
+const MAX_TEXT_LENGTH = 1000;
 
-// Each socket maps to its connected user's information.
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+
+const wss = new WebSocket.Server({
+  port: PORT,
+  maxPayload: MAX_PAYLOAD_BYTES,
+});
+
 const clients = new Map();
-
-// username (normalized) -> socket
 const usernames = new Map();
 
-function sendTo(socket, data) {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(data));
+console.log(`WebSocket server running on port ${PORT}`);
+
+function sendTo(socket, payload) {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(payload));
   }
 }
 
-function broadcast(data) {
-  const payload = JSON.stringify(data);
+function broadcast(payload) {
+  const serialized = JSON.stringify(payload);
 
   for (const socket of clients.keys()) {
     if (socket.readyState === WebSocket.OPEN) {
-      socket.send(payload);
+      socket.send(serialized);
     }
   }
 }
 
 function getOnlineUsers() {
-  return Array.from(clients.values())
-    .map((client) => client.username);
+  return [...usernames.keys()];
 }
 
 function broadcastUsers() {
@@ -42,262 +57,313 @@ function broadcastUsers() {
 function broadcastSystem(text) {
   broadcast({
     type: "SYSTEM",
-    id: crypto.randomUUID(),
     text,
     timestamp: new Date().toISOString(),
   });
 }
 
 function getMentionedUsers(text) {
-  const mentioned = new Set();
-  const matches = text.match(/@([a-zA-Z0-9_]+)/g) || [];
+  const onlineUsers = getOnlineUsers();
 
-  for (const match of matches) {
-    const name = match.slice(1).toLowerCase();
-    const socket = usernames.get(name);
+  return onlineUsers.filter((user) => {
+    const escaped = user.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`(^|[^\\w])@${escaped}(?=$|[^\\w])`, "i");
 
-    if (socket && clients.has(socket)) {
-      mentioned.add(clients.get(socket).username);
-    }
+    return pattern.test(text);
+  });
+}
+
+function validateAttachment(attachment) {
+  if (!attachment || typeof attachment !== "object") {
+    return "Invalid attachment.";
   }
 
-  return Array.from(mentioned);
+  const { name, type, size, data } = attachment;
+
+  if (typeof name !== "string" || !name.trim() || name.length > 255) {
+    return "Attachment filename is invalid.";
+  }
+
+  if (typeof type !== "string" || !ALLOWED_TYPES.has(type)) {
+    return "This file type is not supported.";
+  }
+
+  if (!Number.isInteger(size) || size < 1 || size > MAX_ATTACHMENT_BYTES) {
+    return "Attachments must be smaller than 2 MB.";
+  }
+
+  if (typeof data !== "string") {
+    return "Attachment data is invalid.";
+  }
+
+  const prefix = `data:${type};base64,`;
+
+  if (!data.startsWith(prefix)) {
+    return "Attachment data type does not match.";
+  }
+
+  const base64 = data.slice(prefix.length);
+
+  // Reject malformed Base64 before decoding.
+  if (
+    !base64 ||
+    base64.length % 4 !== 0 ||
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      base64,
+    )
+  ) {
+    return "Attachment data is invalid.";
+  }
+
+  const buffer = Buffer.from(base64, "base64");
+
+  if (
+    buffer.length !== size ||
+    buffer.length > MAX_ATTACHMENT_BYTES ||
+    buffer.length === 0
+  ) {
+    return "Attachment size validation failed.";
+  }
+
+  return null;
 }
 
 function removeClient(socket) {
   const client = clients.get(socket);
-
-  // Ignore repeated cleanup or unknown sockets.
   if (!client) return;
 
   clients.delete(socket);
 
-  const normalizedName = client.username.toLowerCase();
+  const normalized = client.username.toLowerCase();
 
-  // Do not delete a newer connection for the same username.
-  if (usernames.get(normalizedName) === socket) {
-    usernames.delete(normalizedName);
+  if (usernames.get(normalized) === socket) {
+    usernames.delete(normalized);
   }
 
-  console.log(`User disconnected: ${client.username}`);
-
-  broadcastSystem(`${client.username} left the chat`);
+  broadcastSystem(`${client.username} left the chat.`);
   broadcastUsers();
+}
+
+function sendChatError(socket, text) {
+  sendTo(socket, {
+    type: "ERROR",
+    message: text,
+  });
+}
+
+function handleGroupMessage(socket, client, message, isAttachment) {
+  const text = typeof message.text === "string" ? message.text.trim() : "";
+
+  if (text.length > MAX_TEXT_LENGTH) {
+    sendChatError(socket, "Messages cannot exceed 1000 characters.");
+    return;
+  }
+
+  if (!text && !isAttachment) return;
+
+  if (isAttachment) {
+    const attachmentError = validateAttachment(message.attachment);
+
+    if (attachmentError) {
+      sendChatError(socket, attachmentError);
+      return;
+    }
+  }
+
+  const payload = {
+    type: isAttachment ? "CHAT_ATTACHMENT" : "CHAT",
+    id: require("crypto").randomUUID(),
+    username: client.username,
+    text,
+    timestamp: new Date().toISOString(),
+    ...(isAttachment && { attachment: message.attachment }),
+    ...(!isAttachment && { mentionedUsers: getMentionedUsers(text) }),
+  };
+
+  broadcast(payload);
+}
+
+function handlePrivateMessage(socket, client, message, isAttachment) {
+  const recipient = String(message.to || "").trim();
+  const text = typeof message.text === "string" ? message.text.trim() : "";
+
+  if (!recipient) {
+    sendTo(socket, {
+      type: "PRIVATE_ERROR",
+      message: "Please select a recipient.",
+    });
+    return;
+  }
+
+  if (recipient.toLowerCase() === client.username.toLowerCase()) {
+    sendTo(socket, {
+      type: "PRIVATE_ERROR",
+      message: "You cannot send a private message to yourself.",
+    });
+    return;
+  }
+
+  if (text.length > MAX_TEXT_LENGTH) {
+    sendTo(socket, {
+      type: "PRIVATE_ERROR",
+      message: "Messages cannot exceed 1000 characters.",
+    });
+    return;
+  }
+
+  if (!text && !isAttachment) return;
+
+  if (isAttachment) {
+    const attachmentError = validateAttachment(message.attachment);
+
+    if (attachmentError) {
+      sendTo(socket, {
+        type: "PRIVATE_ERROR",
+        message: attachmentError,
+      });
+      return;
+    }
+  }
+
+  const recipientSocket = usernames.get(recipient.toLowerCase());
+
+  if (!recipientSocket || recipientSocket.readyState !== WebSocket.OPEN) {
+    sendTo(socket, {
+      type: "PRIVATE_ERROR",
+      message: `${recipient} is no longer online.`,
+    });
+    return;
+  }
+
+  const payload = {
+    type: isAttachment ? "CHAT_PRIVATE_ATTACHMENT" : "CHAT_PRIVATE",
+    id: require("crypto").randomUUID(),
+    username: client.username,
+    to: usernames.has(recipient.toLowerCase())
+      ? clients.get(recipientSocket)?.username || recipient
+      : recipient,
+    text,
+    timestamp: new Date().toISOString(),
+    ...(isAttachment && { attachment: message.attachment }),
+  };
+
+  // Send to the recipient and echo to the sender.
+  sendTo(recipientSocket, payload);
+  sendTo(socket, payload);
 }
 
 wss.on("connection", (socket) => {
   socket.isAlive = true;
 
-  console.log("New WebSocket connection");
-
-  // A pong response means the connection is alive.
   socket.on("pong", () => {
     socket.isAlive = true;
   });
 
-  socket.on("message", (rawMessage) => {
+  socket.on("message", (rawData) => {
     let message;
 
     try {
-      message = JSON.parse(rawMessage.toString());
+      message = JSON.parse(rawData.toString());
     } catch {
-      sendTo(socket, {
-        type: "ERROR",
-        message: "Invalid JSON message",
-      });
+      sendChatError(socket, "Invalid message format.");
       return;
     }
 
-    // JOIN
+    if (!message || typeof message.type !== "string") return;
+
     if (message.type === "JOIN") {
       const username = String(message.username || "").trim();
 
       if (!/^[a-zA-Z0-9_]{1,20}$/.test(username)) {
         sendTo(socket, {
           type: "JOIN_ERROR",
-          message:
-            "Username must contain 1–20 letters, numbers, or underscores.",
+          text: "Username must be 1–20 characters and contain only letters, numbers, and underscores.",
         });
         return;
       }
 
-      const normalizedName = username.toLowerCase();
-      const existingSocket = usernames.get(normalizedName);
+      const normalized = username.toLowerCase();
 
-      if (
-        existingSocket &&
-        existingSocket !== socket &&
-        existingSocket.readyState === WebSocket.OPEN
-      ) {
+      if (usernames.has(normalized)) {
         sendTo(socket, {
           type: "JOIN_ERROR",
-          message: "This username is already in use.",
+          text: "That username is already in use. Please choose another.",
         });
         return;
-      }
-
-      // Avoid registering one socket under multiple usernames.
-      if (clients.has(socket)) {
-        removeClient(socket);
       }
 
       clients.set(socket, { username });
-      usernames.set(normalizedName, socket);
-
-      console.log(`User joined: ${username}`);
+      usernames.set(normalized, socket);
 
       sendTo(socket, {
         type: "JOINED",
         username,
       });
 
-      broadcastSystem(`${username} joined the chat`);
+      broadcastSystem(`${username} joined the chat.`);
       broadcastUsers();
-
       return;
     }
 
-    // All remaining message types require a joined user.
     const client = clients.get(socket);
 
     if (!client) {
-      sendTo(socket, {
-        type: "ERROR",
-        message: "Join the chat before sending messages.",
-      });
+      sendChatError(socket, "Join the chat before sending messages.");
       return;
     }
 
-    // GROUP CHAT
-    if (message.type === "CHAT") {
-      const text = String(message.text || "").trim();
+    switch (message.type) {
+      case "CHAT":
+        handleGroupMessage(socket, client, message, false);
+        break;
 
-      if (!text) return;
+      case "CHAT_ATTACHMENT":
+        handleGroupMessage(socket, client, message, true);
+        break;
 
-      if (text.length > 5000) {
-        sendTo(socket, {
-          type: "ERROR",
-          message: "Message is too long.",
-        });
-        return;
-      }
+      case "CHAT_PRIVATE":
+        handlePrivateMessage(socket, client, message, false);
+        break;
 
-      broadcast({
-        type: "CHAT",
-        id: crypto.randomUUID(),
-        username: client.username,
-        text,
-        mentionedUsers: getMentionedUsers(text),
-        timestamp: new Date().toISOString(),
-      });
+      case "CHAT_PRIVATE_ATTACHMENT":
+        handlePrivateMessage(socket, client, message, true);
+        break;
 
-      return;
-    }
-
-    // PRIVATE CHAT
-    if (message.type === "CHAT_PRIVATE") {
-      const text = String(message.text || "").trim();
-      const recipientName = String(
-        message.to || message.recipient || message.username || ""
-      ).trim();
-
-      if (!text || !recipientName) return;
-
-      if (text.length > 5000) {
-        sendTo(socket, {
-          type: "PRIVATE_ERROR",
-          message: "Message is too long.",
-        });
-        return;
-      }
-
-      const recipientSocket = usernames.get(
-        recipientName.toLowerCase()
-      );
-
-      if (
-        !recipientSocket ||
-        !clients.has(recipientSocket) ||
-        recipientSocket.readyState !== WebSocket.OPEN
-      ) {
-        sendTo(socket, {
-          type: "PRIVATE_ERROR",
-          message: `${recipientName} is not online.`,
-        });
-        return;
-      }
-
-      const privateMessage = {
-        type: "CHAT_PRIVATE",
-        id: crypto.randomUUID(),
-        username: client.username,
-        to: clients.get(recipientSocket).username,
-        text,
-        timestamp: new Date().toISOString(),
-      };
-
-      // Deliver to the recipient.
-      sendTo(recipientSocket, privateMessage);
-
-      // Echo to sender so their UI can display the sent message.
-      if (recipientSocket !== socket) {
-        sendTo(socket, privateMessage);
-      }
-
-      return;
+      default:
+        break;
     }
   });
 
-  socket.on("close", () => {
-    removeClient(socket);
-  });
+  socket.on("close", () => removeClient(socket));
 
   socket.on("error", (error) => {
-    console.error("WebSocket error:", error.message);
+    console.error("WebSocket client error:", error.message);
     removeClient(socket);
   });
 });
 
-// Heartbeat: detect dead or unreachable connections.
 const heartbeat = setInterval(() => {
   for (const socket of wss.clients) {
     if (socket.isAlive === false) {
-      console.log("Terminating stale WebSocket connection");
       socket.terminate();
       continue;
     }
 
-    if (socket.readyState === WebSocket.OPEN) {
-      socket.isAlive = false;
-      socket.ping();
-    }
+    socket.isAlive = false;
+    socket.ping();
   }
 }, 30000);
 
-wss.on("close", () => {
-  clearInterval(heartbeat);
-});
-
-wss.on("listening", () => {
-  console.log(`WebSocket server listening on port ${PORT}`);
-});
-
-wss.on("error", (error) => {
-  console.error("WebSocket server error:", error);
-});
+wss.on("close", () => clearInterval(heartbeat));
 
 function shutdown() {
   clearInterval(heartbeat);
 
   for (const socket of wss.clients) {
-    socket.terminate();
+    socket.close(1001, "Server shutting down");
   }
 
-  wss.close(() => {
-    process.exit(0);
-  });
-
-  setTimeout(() => process.exit(1), 5000).unref();
+  wss.close(() => process.exit(0));
 }
 
 process.on("SIGTERM", shutdown);

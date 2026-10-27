@@ -1,8 +1,19 @@
-
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:8080";
 const MAX_MESSAGE_LENGTH = 1000;
+const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024;
+
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
 
 export function useChat(username) {
   const socketRef = useRef(null);
@@ -31,8 +42,7 @@ export function useChat(username) {
     setUsers([]);
     setError("");
 
-    const isCurrent = () =>
-      active && socketRef.current === socket;
+    const isCurrent = () => active && socketRef.current === socket;
 
     function handleOpen() {
       if (!isCurrent()) {
@@ -56,7 +66,7 @@ export function useChat(username) {
       try {
         message = JSON.parse(event.data);
       } catch {
-        console.error("Could not parse server message");
+        console.error("Received invalid JSON from the server.");
         return;
       }
 
@@ -71,17 +81,18 @@ export function useChat(username) {
         case "JOIN_ERROR":
           setStatus("error");
           setError(
-            message.text || "Unable to join. Try another username."
+            message.text ||
+              message.message ||
+              "Unable to join. Try another username."
           );
           break;
 
         case "CHAT":
         case "CHAT_PRIVATE":
+        case "CHAT_ATTACHMENT":
+        case "CHAT_PRIVATE_ATTACHMENT":
         case "SYSTEM":
-          if (
-            typeof message.text === "string" &&
-            typeof message.timestamp === "string"
-          ) {
+          if (typeof message.timestamp === "string") {
             setMessages((previous) => [...previous, message]);
           }
           break;
@@ -96,9 +107,15 @@ export function useChat(username) {
           );
           break;
 
+        case "ERROR":
+          setError(message.message || "Unable to send the message.");
+          break;
+
         case "PRIVATE_ERROR":
           setError(
-            message.text || "Unable to send the private message."
+            message.message ||
+              message.text ||
+              "Unable to send the private message."
           );
           break;
 
@@ -242,9 +259,73 @@ export function useChat(username) {
     [sendEvent, status, username]
   );
 
-  const clearError = useCallback(() => {
-    setError("");
-  }, []);
+  const sendAttachment = useCallback(
+    (to, attachment, text = "") => {
+      const recipient = String(to || "").trim();
+      const cleanText = String(text || "").trim();
+
+      if (!attachment || typeof attachment !== "object") {
+        setError("Please select a file.");
+        return false;
+      }
+
+      if (!ALLOWED_TYPES.has(attachment.type)) {
+        setError("This file type is not supported.");
+        return false;
+      }
+
+      if (
+        !Number.isInteger(attachment.size) ||
+        attachment.size < 1 ||
+        attachment.size > MAX_ATTACHMENT_BYTES
+      ) {
+        setError("Attachments must be smaller than 2 MB.");
+        return false;
+      }
+
+      if (
+        typeof attachment.name !== "string" ||
+        typeof attachment.data !== "string" ||
+        !attachment.data.startsWith(
+          `data:${attachment.type};base64,`
+        )
+      ) {
+        setError("The selected file could not be read.");
+        return false;
+      }
+
+      if (cleanText.length > MAX_MESSAGE_LENGTH) {
+        setError("Messages cannot exceed 1000 characters.");
+        return false;
+      }
+
+      if (status !== "connected") {
+        setError("Please wait until you are connected.");
+        return false;
+      }
+
+      if (
+        recipient &&
+        recipient.toLowerCase() ===
+          String(username || "").trim().toLowerCase()
+      ) {
+        setError("You cannot send a private message to yourself.");
+        return false;
+      }
+
+      return sendEvent({
+        type: recipient
+          ? "CHAT_PRIVATE_ATTACHMENT"
+          : "CHAT_ATTACHMENT",
+        ...(recipient && { to: recipient }),
+        text: cleanText,
+        attachment,
+      });
+    },
+    [sendEvent, status, username]
+  );
+
+  const clearError = useCallback(() => setError(""), []);
 
   return {
     status,
@@ -253,6 +334,7 @@ export function useChat(username) {
     error,
     sendMessage,
     sendPrivateMessage,
+    sendAttachment,
     clearError,
   };
 }
