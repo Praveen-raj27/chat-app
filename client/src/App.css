@@ -2201,3 +2201,338 @@ body {
     height: 30px;
   }
 }
+
+
+/* Input and emoji button */
+.message-input-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+}
+
+.chat-message-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding-right: 48px !important;
+}
+
+.emoji-control {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 30;
+  transform: translateY(-50%);
+}
+
+.message-form .emoji-input-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  color: #687080;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  font-size: 25px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+      min-width: auto;
+}
+
+.message-form .emoji-input-trigger:hover {
+  background: #f0efff;
+  transform: scale(1.08);
+}
+
+.message-form .emoji-input-trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Floating emoji picker */
+.whatsapp-emoji-picker {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  z-index: 1000;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  padding: 12px;
+  box-sizing: border-box;
+  background: #fff;
+  color: #303747;
+  border: 1px solid #e6e8ee;
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(24, 31, 50, 0.18);
+  animation: emoji-picker-appear 0.16s ease-out;
+}
+
+@keyframes emoji-picker-appear {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.emoji-picker-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.message-form .emoji-picker-close {
+  width: 28px;
+  height: 28px;
+  color: #72798a;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 23px;
+  cursor: pointer;
+  min-width: auto;
+}
+
+.emoji-picker-close:hover {
+  background: #f2f3f7;
+}
+
+.emoji-search {
+  width: 100%;
+  height: 36px;
+  padding: 0 11px;
+  margin-bottom: 10px;
+  box-sizing: border-box;
+  color: #303747;
+  background: #f5f6f8;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  outline: none;
+  font-size: 12px;
+}
+
+.emoji-search:focus {
+  border-color: #a9a2f6;
+  background: #fff;
+}
+
+.emoji-category-tabs {
+  display: flex;
+  justify-content: space-between;
+  gap: 3px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #eceef3;
+}
+
+.message-form  .emoji-category {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  height: 35px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.message-form  .emoji-category:hover,
+.message-form  .emoji-category.active {
+  background: #f0efff;
+}
+
+.message-form  .emoji-category.active {
+  box-shadow: inset 0 0px #7167dc;
+}
+
+.emoji-picker-section-title {
+  margin: 12px 0 8px;
+  color: #7c8291;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.whatsapp-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 3px;
+  max-height: 190px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+}
+
+.message-form .whatsapp-emoji-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  font-size: 24px;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease;
+  height: auto;
+}
+
+.message-form .whatsapp-emoji-option:hover {
+  background: #f0efff;
+}
+
+.message-form .whatsapp-emoji-option:focus-visible {
+  outline: 2px solid #7167dc;
+}
+
+.message-form .emoji-no-results {
+  grid-column: 1 / -1;
+  padding: 18px 0;
+  color: #858b9b;
+  text-align: center;
+  font-size: 12px;
+}
+
+/* Attachment preview */
+.attachment-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+  background: #f8f8fc;
+  border: 1px solid #e4e5ef;
+  border-radius: 12px;
+}
+
+.attachment-preview-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e7e7ef;
+  border-radius: 9px;
+}
+
+.attachment-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.attachment-file-icon {
+  color: #6259cf;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.attachment-preview-details {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.attachment-preview-name {
+  overflow: hidden;
+  color: #303747;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-preview-size {
+  color: #858b9b;
+  font-size: 11px;
+}
+
+.attachment-remove-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  color: #687080;
+  background: #fff;
+  border: 1px solid #e6e8ee;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.attachment-remove-btn:hover {
+  color: #d9485f;
+  background: #fff0f1;
+}
+
+/* Received image and document attachments */
+.chat-attachment-image-link {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.chat-attachment-image {
+  display: block;
+  max-width: min(100%, 320px);
+  max-height: 280px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.chat-attachment-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.chat-attachment-file-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .whatsapp-emoji-picker {
+    width: 290px;
+    right: -4px;
+    padding: 10px;
+  }
+
+  .whatsapp-emoji-option {
+    font-size: 22px;
+  }
+
+  .attachment-preview {
+    gap: 8px;
+    padding: 8px;
+  }
+}

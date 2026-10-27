@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "./useChat";
 import "./App.css";
@@ -16,16 +17,56 @@ const ALLOWED_TYPES = new Set([
 ]);
 
 const ACCEPTED_FILES = [
-  ".jpg",
-  ".jpeg",
-  ".png",
-  ".gif",
-  ".webp",
-  ".pdf",
-  ".txt",
-  ".doc",
-  ".docx",
+  ".jpg", ".jpeg", ".png", ".gif", ".webp",
+  ".pdf", ".txt", ".doc", ".docx",
 ].join(",");
+
+const EMOJI_CATEGORIES = {
+  Smileys: [
+    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣",
+    "🥹", "😊", "😇", "🙂", "🙃", "😉", "😍", "🥰",
+    "😘", "😗", "😙", "😚", "😋", "😛", "😜", "🤪",
+    "😎", "🥳", "😭", "😢", "😡", "🤔", "🫡", "🤗",
+    "😴", "🤯", "🥺", "😏", "😬", "🤭", "🫠", "😱",
+  ],
+  People: [
+    "👋", "🤚", "✋", "🖐️", "👌", "🤌", "🤏", "✌️",
+    "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉", "👆",
+    "👇", "👍", "👎", "✊", "👊", "👏", "🙌", "🫶",
+    "🤝", "🙏", "💪", "🫂", "👀", "💋", "👶", "🧑",
+  ],
+  Nature: [
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼",
+    "🐨", "🐯", "🦁", "🐸", "🐵", "🐔", "🐧", "🐦",
+    "🦋", "🐢", "🐬", "🐳", "🦄", "🌸", "🌹", "🌻",
+    "🌈", "☀️", "🌙", "⭐", "⚡", "🔥", "🌊", "🍀",
+  ],
+  Food: [
+    "🍎", "🍉", "🍇", "🍓", "🍒", "🍍", "🥭", "🍌",
+    "🍕", "🍔", "🍟", "🌭", "🍿", "🍩", "🎂", "🍪",
+    "🍫", "🍭", "☕", "🧋", "🥤", "🍜", "🍰", "🍦",
+  ],
+  Activities: [
+    "⚽", "🏀", "🏈", "🎾", "🏏", "🏆", "🥇", "🎯",
+    "🎮", "🎲", "🎸", "🎤", "🎧", "🎬", "🎨", "🎉",
+    "🎊", "🎁", "🎈", "🚀", "✈️", "🚗", "🏍️", "💻",
+  ],
+  Symbols: [
+    "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "🤍",
+    "💔", "💕", "💞", "💖", "💗", "💘", "💯", "💢",
+    "💥", "💫", "💦", "💤", "✅", "❌", "❓", "❗",
+    "✨", "💎", "♻️", "🔔", "🔒", "💬", "➕", "♾️",
+  ],
+};
+
+const EMOJI_CATEGORY_ICONS = {
+  Smileys: "😀",
+  People: "👋",
+  Nature: "🐻",
+  Food: "🍕",
+  Activities: "⚽",
+  Symbols: "❤️",
+};
 
 export default function ChatRoom({ username }) {
   const {
@@ -47,12 +88,16 @@ export default function ChatRoom({ username }) {
 
   const [unreadCounts, setUnreadCounts] = useState({});
 
-  // Selected attachment and file input.
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState("");
-  const fileInputRef = useRef(null);
+
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
+  const [activeEmojiCategory, setActiveEmojiCategory] =
+    useState("Smileys");
 
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const emojiPickerRef = useRef(null);
   const processedPrivateMessagesRef = useRef(new Set());
 
   const currentUsername = String(username ?? "").trim();
@@ -64,9 +109,14 @@ export default function ChatRoom({ username }) {
     return [
       ...new Set(
         safeUsers
-          .filter((user) => typeof user === "string" && user.trim().length > 0)
+          .filter(
+            (user) =>
+              typeof user === "string" && user.trim().length > 0,
+          )
           .map((user) => user.trim())
-          .filter((user) => user.toLowerCase() !== normalizedUsername),
+          .filter(
+            (user) => user.toLowerCase() !== normalizedUsername,
+          ),
       ),
     ];
   }, [users, normalizedUsername]);
@@ -79,12 +129,15 @@ export default function ChatRoom({ username }) {
     safeMessages.forEach((message) => {
       if (!message) return;
 
-      const isGroupMessage =
-        message.type === "CHAT" || message.type === "CHAT_ATTACHMENT";
+      const isGroupMessage = [
+        "CHAT",
+        "CHAT_ATTACHMENT",
+      ].includes(message.type);
 
-      const isPrivateMessage =
-        message.type === "CHAT_PRIVATE" ||
-        message.type === "CHAT_PRIVATE_ATTACHMENT";
+      const isPrivateMessage = [
+        "CHAT_PRIVATE",
+        "CHAT_PRIVATE_ATTACHMENT",
+      ].includes(message.type);
 
       if (!isGroupMessage && !isPrivateMessage) return;
 
@@ -96,7 +149,9 @@ export default function ChatRoom({ username }) {
 
       const senderKey = sender.toLowerCase();
 
-      const recipient = String(message.to ?? message.recipient ?? "").trim();
+      const recipient = String(
+        message.to ?? message.recipient ?? "",
+      ).trim();
 
       const recipientKey = recipient.toLowerCase();
 
@@ -113,9 +168,9 @@ export default function ChatRoom({ username }) {
       );
 
       if (processed.has(messageKey)) return;
-
       processed.add(messageKey);
 
+      // Do not count messages sent by the current user.
       if (senderKey === normalizedUsername) return;
 
       if (isGroupMessage) {
@@ -131,7 +186,10 @@ export default function ChatRoom({ username }) {
 
       if (!recipient || recipientKey !== normalizedUsername) return;
 
-      if (selectedUser && selectedUser.trim().toLowerCase() === senderKey) {
+      if (
+        selectedUser &&
+        selectedUser.trim().toLowerCase() === senderKey
+      ) {
         return;
       }
 
@@ -142,6 +200,7 @@ export default function ChatRoom({ username }) {
     });
   }, [messages, normalizedUsername, selectedUser]);
 
+  // Clear unread badges when opening a conversation.
   useEffect(() => {
     if (!selectedUser) return;
 
@@ -152,10 +211,32 @@ export default function ChatRoom({ username }) {
 
       const next = { ...previous };
       delete next[selectedKey];
-
       return next;
     });
   }, [selectedUser]);
+
+  // Close emoji picker when clicking outside it.
+  useEffect(() => {
+    if (!emojiPickerOpen) return;
+
+    function handleOutsideClick(event) {
+      if (
+        emojiPickerRef.current &&
+        !emojiPickerRef.current.contains(event.target)
+      ) {
+        setEmojiPickerOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener(
+        "mousedown",
+        handleOutsideClick,
+      );
+    };
+  }, [emojiPickerOpen]);
 
   // Detect an @mention immediately before the cursor.
   const mentionMatch = useMemo(() => {
@@ -170,9 +251,11 @@ export default function ChatRoom({ username }) {
   const suggestions = useMemo(() => {
     if (mentionQuery === null) return [];
 
-    const query = String(mentionQuery).toLowerCase();
+    const query = mentionQuery.toLowerCase();
 
-    return otherUsers.filter((user) => user.toLowerCase().startsWith(query));
+    return otherUsers.filter((user) =>
+      user.toLowerCase().startsWith(query),
+    );
   }, [mentionQuery, otherUsers]);
 
   useEffect(() => {
@@ -187,9 +270,11 @@ export default function ChatRoom({ username }) {
       return safeMessages.filter(
         (message) =>
           message &&
-          (message.type === "CHAT" ||
-            message.type === "CHAT_ATTACHMENT" ||
-            message.type === "SYSTEM"),
+          [
+            "CHAT",
+            "CHAT_ATTACHMENT",
+            "SYSTEM",
+          ].includes(message.type),
       );
     }
 
@@ -198,26 +283,29 @@ export default function ChatRoom({ username }) {
     return safeMessages.filter((message) => {
       if (
         !message ||
-        !["CHAT_PRIVATE", "CHAT_PRIVATE_ATTACHMENT"].includes(message.type)
+        ![
+          "CHAT_PRIVATE",
+          "CHAT_PRIVATE_ATTACHMENT",
+        ].includes(message.type)
       ) {
         return false;
       }
 
       const sender = String(
         message.from ?? message.username ?? message.sender ?? "",
-      )
-        .trim()
-        .toLowerCase();
+      ).trim().toLowerCase();
 
-      const receiver = String(message.to ?? message.recipient ?? "")
-        .trim()
-        .toLowerCase();
+      const receiver = String(
+        message.to ?? message.recipient ?? "",
+      ).trim().toLowerCase();
 
       if (!sender || !receiver) return false;
 
       return (
-        (sender === normalizedUsername && receiver === recipient) ||
-        (sender === recipient && receiver === normalizedUsername)
+        (sender === normalizedUsername &&
+          receiver === recipient) ||
+        (sender === recipient &&
+          receiver === normalizedUsername)
       );
     });
   }, [messages, normalizedUsername, selectedUser]);
@@ -237,6 +325,7 @@ export default function ChatRoom({ username }) {
     setCursorPos(0);
     setSuggestionsOpen(false);
     setActiveSuggestion(-1);
+    setEmojiPickerOpen(false);
     removeSelectedFile();
 
     const userKey = user.toLowerCase();
@@ -246,7 +335,6 @@ export default function ChatRoom({ username }) {
 
       const next = { ...previous };
       delete next[userKey];
-
       return next;
     });
   }
@@ -257,6 +345,7 @@ export default function ChatRoom({ username }) {
     setCursorPos(0);
     setSuggestionsOpen(true);
     setActiveSuggestion(-1);
+    setEmojiPickerOpen(false);
     removeSelectedFile();
 
     setUnreadCounts((previous) => {
@@ -264,7 +353,6 @@ export default function ChatRoom({ username }) {
 
       const next = { ...previous };
       delete next.group;
-
       return next;
     });
   }
@@ -284,7 +372,6 @@ export default function ChatRoom({ username }) {
     }
 
     if (file.size > MAX_ATTACHMENT_BYTES) {
-      clearError?.();
       alert("The maximum attachment size is 2 MB.");
       event.target.value = "";
       return;
@@ -311,7 +398,9 @@ export default function ChatRoom({ username }) {
         data: reader.result,
       });
 
-      setFilePreview(file.type.startsWith("image/") ? reader.result : "");
+      setFilePreview(
+        file.type.startsWith("image/") ? reader.result : "",
+      );
 
       clearError?.();
     };
@@ -346,15 +435,44 @@ export default function ChatRoom({ username }) {
       if (!inputRef.current) return;
 
       inputRef.current.focus();
-      inputRef.current.setSelectionRange(nextCursor, nextCursor);
+      inputRef.current.setSelectionRange(
+        nextCursor,
+        nextCursor,
+      );
+    });
+  }
+
+  function insertEmoji(emoji) {
+    const input = inputRef.current;
+    const start = input?.selectionStart ?? text.length;
+    const end = input?.selectionEnd ?? text.length;
+
+    const nextText =
+      text.slice(0, start) + emoji + text.slice(end);
+
+    const nextCursor = start + emoji.length;
+
+    setText(nextText);
+    setCursorPos(nextCursor);
+    setEmojiPickerOpen(false);
+    setSuggestionsOpen(true);
+
+    requestAnimationFrame(() => {
+      if (!inputRef.current) return;
+
+      inputRef.current.focus();
+      inputRef.current.setSelectionRange(
+        nextCursor,
+        nextCursor,
+      );
     });
   }
 
   function handleInputChange(event) {
     setText(event.target.value);
-
-    setCursorPos(event.target.selectionStart ?? event.target.value.length);
-
+    setCursorPos(
+      event.target.selectionStart ?? event.target.value.length,
+    );
     setSuggestionsOpen(true);
     setActiveSuggestion(-1);
 
@@ -362,14 +480,20 @@ export default function ChatRoom({ username }) {
   }
 
   function updateCursor(event) {
-    setCursorPos(event.target.selectionStart ?? event.target.value.length);
+    setCursorPos(
+      event.target.selectionStart ?? event.target.value.length,
+    );
   }
 
   function handleKeyDown(event) {
+    if (event.key === "Escape" && emojiPickerOpen) {
+      setEmojiPickerOpen(false);
+      return;
+    }
+
     if (suggestionsOpen && suggestions.length > 0) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-
         setActiveSuggestion((index) =>
           index < suggestions.length - 1 ? index + 1 : 0,
         );
@@ -378,7 +502,6 @@ export default function ChatRoom({ username }) {
 
       if (event.key === "ArrowUp") {
         event.preventDefault();
-
         setActiveSuggestion((index) =>
           index <= 0 ? suggestions.length - 1 : index - 1,
         );
@@ -390,7 +513,6 @@ export default function ChatRoom({ username }) {
           event.preventDefault();
           selectMention(suggestions[activeSuggestion]);
         }
-
         return;
       }
 
@@ -413,13 +535,16 @@ export default function ChatRoom({ username }) {
 
     const trimmedText = text.trim();
 
-    // Allow an attachment to be sent without a caption.
     if (!trimmedText && !selectedFile) return;
 
     let sent = false;
 
     if (selectedFile) {
-      sent = sendAttachment(selectedUser, selectedFile, trimmedText);
+      sent = sendAttachment(
+        selectedUser,
+        selectedFile,
+        trimmedText,
+      );
     } else {
       sent = selectedUser
         ? sendPrivateMessage(selectedUser, trimmedText)
@@ -431,12 +556,14 @@ export default function ChatRoom({ username }) {
       setCursorPos(0);
       setSuggestionsOpen(true);
       setActiveSuggestion(-1);
+      setEmojiPickerOpen(false);
       removeSelectedFile();
     }
   }
 
   function renderMessageText(message) {
-    const messageText = typeof message?.text === "string" ? message.text : "";
+    const messageText =
+      typeof message?.text === "string" ? message.text : "";
 
     const mentionedUsers = Array.isArray(message?.mentionedUsers)
       ? message.mentionedUsers.filter(
@@ -444,14 +571,19 @@ export default function ChatRoom({ username }) {
         )
       : [];
 
-    if (message?.type !== "CHAT" || mentionedUsers.length === 0) {
+    if (
+      message?.type !== "CHAT" ||
+      mentionedUsers.length === 0
+    ) {
       return messageText;
     }
 
     const escapedNames = mentionedUsers
       .slice()
       .sort((a, b) => b.length - a.length)
-      .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      .map((name) =>
+        name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      );
 
     const pattern = new RegExp(
       `(^|[^\\w])(@(?:${escapedNames.join("|")}))(?=$|[^\\w])`,
@@ -470,7 +602,10 @@ export default function ChatRoom({ username }) {
       if (match[1]) parts.push(match[1]);
 
       parts.push(
-        <span className="message-mention" key={`mention-${match.index}`}>
+        <span
+          className="message-mention"
+          key={`mention-${match.index}`}
+        >
           {match[2]}
         </span>,
       );
@@ -497,22 +632,13 @@ export default function ChatRoom({ username }) {
           target="_blank"
           rel="noreferrer"
           aria-label={`Open image ${attachment.name} in a new tab`}
-          style={{
-            display: "block",
-            marginBottom: attachment.name ? "8px" : 0,
-          }}
+          className="chat-attachment-image-link"
         >
           <img
             src={attachment.data}
             alt={attachment.name}
             loading="lazy"
-            style={{
-              display: "block",
-              maxWidth: "min(100%, 320px)",
-              maxHeight: "280px",
-              objectFit: "contain",
-              borderRadius: "8px",
-            }}
+            className="chat-attachment-image"
           />
         </a>
       );
@@ -522,20 +648,12 @@ export default function ChatRoom({ username }) {
       <a
         href={attachment.data}
         download={attachment.name}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: "8px",
-          padding: "8px 10px",
-          marginBottom: "8px",
-          border: "1px solid rgba(128, 128, 128, 0.35)",
-          borderRadius: "8px",
-          textDecoration: "none",
-          overflowWrap: "anywhere",
-        }}
+        className="chat-attachment-file-link"
       >
         <span aria-hidden="true">📎</span>
-        <span>{attachment.name}</span>
+        <span className="chat-attachment-file-name">
+          {attachment.name}
+        </span>
         <span aria-hidden="true">↓</span>
       </a>
     );
@@ -545,6 +663,19 @@ export default function ChatRoom({ username }) {
     if (bytes < 1024) return `${bytes} B`;
     return `${(bytes / 1024).toFixed(1)} KB`;
   }
+
+  const allEmojis = useMemo(
+    () => [...new Set(Object.values(EMOJI_CATEGORIES).flat())],
+    [],
+  );
+
+  const visibleEmojis = useMemo(() => {
+      return EMOJI_CATEGORIES[activeEmojiCategory] || [];
+
+    // This basic picker searches emoji characters.
+    // For keyword search (e.g. "laugh"), use an emoji library.
+  
+  }, [activeEmojiCategory, allEmojis]);
 
   return (
     <main className="chat-screen">
@@ -615,7 +746,9 @@ export default function ChatRoom({ username }) {
                   className="unread-badge"
                   aria-label={`${unreadCounts.group} unread group messages`}
                 >
-                  {unreadCounts.group > 99 ? "99+" : unreadCounts.group}
+                  {unreadCounts.group > 99
+                    ? "99+"
+                    : unreadCounts.group}
                 </span>
               )}
             </div>
@@ -636,11 +769,13 @@ export default function ChatRoom({ username }) {
                 type="button"
                 key={userKey}
                 className={`conversation-item ${
-                  selectedUser === user ? "active" : ""
+                  selectedUser?.toLowerCase() === userKey ? "active" : ""
                 }`}
                 onClick={() => openConversation(user)}
               >
-                <div className="avatar">{user.charAt(0).toUpperCase()}</div>
+                <div className="avatar">
+                  {user.charAt(0).toUpperCase()}
+                </div>
 
                 <div className="conversation-info">
                   <div className="conversation-name-row">
@@ -666,7 +801,9 @@ export default function ChatRoom({ username }) {
           })}
 
           {otherUsers.length === 0 && (
-            <p className="empty-users">No other users online yet.</p>
+            <p className="empty-users">
+              No other users online yet.
+            </p>
           )}
         </div>
 
@@ -690,7 +827,9 @@ export default function ChatRoom({ username }) {
       <section className="messages-section">
         <header className="conversation-header">
           <div className="avatar header-avatar">
-            {selectedUser ? selectedUser.charAt(0).toUpperCase() : "#"}
+            {selectedUser
+              ? selectedUser.charAt(0).toUpperCase()
+              : "#"}
           </div>
 
           <div>
@@ -722,7 +861,9 @@ export default function ChatRoom({ username }) {
 
         <div className="messages">
           <div className="conversation-intro">
-            <div className="intro-icon">{selectedUser ? "✉" : "#"}</div>
+            <div className="intro-icon">
+              {selectedUser ? "✉" : "#"}
+            </div>
 
             <h3>
               {selectedUser
@@ -749,26 +890,31 @@ export default function ChatRoom({ username }) {
               );
             }
 
-            const isPrivate =
-              message.type === "CHAT_PRIVATE" ||
-              message.type === "CHAT_PRIVATE_ATTACHMENT";
+            const isPrivate = [
+              "CHAT_PRIVATE",
+              "CHAT_PRIVATE_ATTACHMENT",
+            ].includes(message.type);
 
             const sender = String(
               isPrivate
-                ? (message.from ?? message.username ?? message.sender ?? "")
-                : (message.username ?? message.from ?? message.sender ?? ""),
+                ? message.from ?? message.username ?? message.sender ?? ""
+                : message.username ?? message.from ?? message.sender ?? "",
             ).trim();
 
             if (!sender) return null;
 
-            const isOwnMessage = sender.toLowerCase() === normalizedUsername;
-
-            const attachment = message.attachment;
+            const isOwnMessage =
+              sender.toLowerCase() === normalizedUsername;
 
             return (
               <div
-                className={`message-row ${isOwnMessage ? "own-message" : ""}`}
-                key={message.id || `${message.timestamp ?? "message"}-${index}`}
+                className={`message-row ${
+                  isOwnMessage ? "own-message" : ""
+                }`}
+                key={
+                  message.id ||
+                  `${message.timestamp ?? "message"}-${index}`
+                }
               >
                 {!isOwnMessage && (
                   <div className="avatar message-avatar">
@@ -782,17 +928,21 @@ export default function ChatRoom({ username }) {
                   )}
 
                   <div className="message-bubble">
-                    {attachment && renderAttachment(attachment)}
+                    {message.attachment &&
+                      renderAttachment(message.attachment)}
 
                     {renderMessageText(message)}
                   </div>
 
                   <time className="message-time">
                     {message.timestamp
-                      ? new Date(message.timestamp).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
+                      ? new Date(message.timestamp).toLocaleTimeString(
+                          [],
+                          {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          },
+                        )
                       : ""}
                   </time>
                 </div>
@@ -812,7 +962,9 @@ export default function ChatRoom({ username }) {
                   role="listbox"
                   aria-label="Mention suggestions"
                 >
-                  <div className="mention-heading">MENTION SOMEONE</div>
+                  <div className="mention-heading">
+                    MENTION SOMEONE
+                  </div>
 
                   {suggestions.map((user, index) => (
                     <button
@@ -831,14 +983,12 @@ export default function ChatRoom({ username }) {
                       </span>
 
                       <span className="mention-user-name">{user}</span>
-
                       <span className="mention-at">@</span>
                     </button>
                   ))}
                 </div>
               )}
 
-            {/* Hidden input: uses the existing composer layout. */}
             <input
               ref={fileInputRef}
               type="file"
@@ -848,7 +998,6 @@ export default function ChatRoom({ username }) {
               aria-label="Choose attachment"
             />
 
-            {/* Compact file preview shown only when a file is selected. */}
             {selectedFile && (
               <div className="attachment-preview">
                 <div className="attachment-preview-icon">
@@ -906,27 +1055,112 @@ export default function ChatRoom({ username }) {
               </div>
             )}
 
-            <input
-              ref={inputRef}
-              value={text}
-              onChange={handleInputChange}
-              onClick={updateCursor}
-              onKeyUp={updateCursor}
-              onKeyDown={handleKeyDown}
-              onFocus={() => setSuggestionsOpen(true)}
-              placeholder={
-                selectedUser
-                  ? `Message ${selectedUser} privately...`
-                  : "Message everyone... Type @ to mention"
-              }
-              maxLength={1000}
-              disabled={status !== "connected"}
-              aria-label="Chat message"
-              autoComplete="off"
-            />
+            <div className="message-input-container">
+              <input
+                ref={inputRef}
+                className="chat-message-input"
+                value={text}
+                onChange={handleInputChange}
+                onClick={updateCursor}
+                onKeyUp={updateCursor}
+                onKeyDown={handleKeyDown}
+                onFocus={() => setSuggestionsOpen(true)}
+                placeholder={
+                  selectedUser
+                    ? `Message ${selectedUser} privately...`
+                    : "Message everyone... Type @ to mention"
+                }
+                maxLength={1000}
+                disabled={status !== "connected"}
+                aria-label="Chat message"
+                autoComplete="off"
+              />
+
+              <div className="emoji-control" ref={emojiPickerRef}>
+                <button
+                  type="button"
+                  className="emoji-input-trigger"
+                  onClick={() =>
+                    setEmojiPickerOpen((open) => !open)
+                  }
+                  disabled={status !== "connected"}
+                  aria-label="Open emoji picker"
+                  aria-expanded={emojiPickerOpen}
+                  title="Emoji"
+                >
+                  ☺
+                </button>
+
+                {emojiPickerOpen && (
+                  <div className="whatsapp-emoji-picker">
+                    <div className="emoji-picker-title">
+                      <strong>Emojis</strong>
+
+                      <button
+                        type="button"
+                        className="emoji-picker-close"
+                        onClick={() => setEmojiPickerOpen(false)}
+                        aria-label="Close emoji picker"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    <div className="emoji-category-tabs">
+                      {Object.keys(EMOJI_CATEGORIES).map(
+                        (category) => (
+                          <button
+                            type="button"
+                            key={category}
+                            className={`emoji-category ${
+                              activeEmojiCategory === category
+                                ? "active"
+                                : ""
+                            }`}
+                            onClick={() => {
+                              setActiveEmojiCategory(category);
+                            }}
+                            title={category}
+                            aria-label={category}
+                          >
+                            {EMOJI_CATEGORY_ICONS[category]}
+                          </button>
+                        ),
+                      )}
+                    </div>
+
+                    <div className="emoji-picker-section-title">
+                      {activeEmojiCategory}
+                    </div>
+
+                    <div className="whatsapp-emoji-grid">
+                      {visibleEmojis.map((emoji, index) => (
+                        <button
+                          type="button"
+                          key={`${emoji}-${index}`}
+                          className="whatsapp-emoji-option"
+                          onMouseDown={(event) =>
+                            event.preventDefault()
+                          }
+                          onClick={() => insertEmoji(emoji)}
+                          aria-label={`Insert ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+
+                      {visibleEmojis.length === 0 && (
+                        <p className="emoji-no-results">
+                          No matching emojis
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Attachment button placed beside Send, without changing the layout structure. */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -935,7 +1169,8 @@ export default function ChatRoom({ username }) {
             title="Attach a file (max 2 MB)"
             style={{
               flexShrink: 0,
-              cursor: status === "connected" ? "pointer" : "not-allowed",
+              cursor:
+                status === "connected" ? "pointer" : "not-allowed",
             }}
           >
             Attach 📎
@@ -943,7 +1178,10 @@ export default function ChatRoom({ username }) {
 
           <button
             type="submit"
-            disabled={status !== "connected" || (!text.trim() && !selectedFile)}
+            disabled={
+              status !== "connected" ||
+              (!text.trim() && !selectedFile)
+            }
           >
             Send <span>➤</span>
           </button>
